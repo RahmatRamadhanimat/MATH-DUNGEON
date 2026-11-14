@@ -1,0 +1,6 @@
+{
+  "name": "Math Maze: Quest for the Keys",
+  "description": "2D Pixel Art Online Multiplayer Mathematics Adventure Game for classrooms up to 45 players with procedural mazes, real-time Socket.IO networking, and Co-op, Competitive, and Team Battle modes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

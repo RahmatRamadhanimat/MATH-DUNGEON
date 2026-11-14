@@ -1,0 +1,389 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { GameDatabase } from './database';
+import { RoomManager } from './roomManager';
+
+function createTempDbPath(): { dir: string; file: string } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'math-maze-test-'));
+  return { dir, file: path.join(dir, 'db.json') };
+}
+
+test('RoomManager persists created rooms and restores them across server restarts', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db1 = new GameDatabase(tmp.file);
+    const mgr1 = new RoomManager(db1);
+    const created = mgr1.createRoom({
+      teacherId: 'teacher-abc',
+      teacherName: 'Bu Sari',
+      socketId: 'sock-teacher-1',
+    });
+
+    assert.match(created.code, /^MATH-\d{4}$/);
+
+    // Student joins using digits-only format
+    const digitsOnly = created.code.replace('MATH-', '');
+    const joinRes = mgr1.joinRoom({
+      roomCode: digitsOnly,
+      playerId: 'student-1',
+      socketId: 'sock-student-1',
+      name: 'Andi',
+      role: 'student',
+    });
+    assert.equal(joinRes.ok, true);
+    if (joinRes.ok) {
+      assert.equal(joinRes.room.code, created.code);
+      assert.equal(joinRes.room.players.get('student-1')?.name, 'Andi');
+    }
+
+    // Simulate brand new server instance loading from same disk file
+    const db2 = new GameDatabase(tmp.file);
+    const mgr2 = new RoomManager(db2);
+    mgr2.restorePersistedRooms();
+
+    const resolved = mgr2.resolveRoom(created.code.toLowerCase());
+    assert.ok(resolved, 'Room created in previous server instance must be resolvable after restart');
+    assert.equal(resolved.teacherName, 'Bu Sari');
+    assert.equal(resolved.players.get('student-1')?.name, 'Andi');
+    assert.equal(resolved.players.get('student-1')?.connected, false);
+
+    // Student reconnects to restored room
+    const rejoinRes = mgr2.joinRoom({
+      roomCode: created.code,
+      playerId: 'student-1',
+      socketId: 'sock-student-2',
+      name: 'Andi',
+      role: 'student',
+    });
+    assert.equal(rejoinRes.ok, true);
+    if (rejoinRes.ok) {
+      assert.equal(rejoinRes.room.players.get('student-1')?.connected, true);
+      assert.equal(rejoinRes.room.players.get('student-1')?.socketId, 'sock-student-2');
+    }
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+test('RoomManager hydrates room on-demand from disk even before explicit restore', () => {
+  const tmp = createTempDbPath();
+  try {
+    const writerDb = new GameDatabase(tmp.file);
+    const writerMgr = new RoomManager(writerDb);
+    const room = writerMgr.createRoom({
+      teacherId: 'teacher-x',
+      teacherName: 'Pak Budi',
+      socketId: 'sock-t',
+    });
+
+    // Separate reader instance without calling restorePersistedRooms()
+    const readerDb = new GameDatabase(tmp.file);
+    const readerMgr = new RoomManager(readerDb);
+    const joinRes = readerMgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'stu-99',
+      socketId: 'sock-s',
+      name: 'Citra',
+      role: 'student',
+    });
+
+    assert.equal(joinRes.ok, true);
+    if (joinRes.ok) {
+      assert.equal(joinRes.room.code, room.code);
+    }
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+test('RoomManager promotes teacher to student cleanly on solo start and enforces 45-student cap', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db = new GameDatabase(tmp.file);
+    const mgr = new RoomManager(db);
+    const room = mgr.createRoom({
+      teacherId: 'teacher-solo',
+      teacherName: 'Bu Rina',
+      socketId: 'sock-t1',
+    });
+
+    // Teacher starts solo by joining as student with same teacherId
+    const soloJoin = mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'teacher-solo',
+      socketId: 'sock-t1',
+      name: 'Bu Rina',
+      role: 'student',
+    });
+    assert.equal(soloJoin.ok, true);
+    if (soloJoin.ok) {
+      assert.equal(soloJoin.room.players.get('teacher-solo')?.role, 'student');
+      const serialized = mgr.serializeRoomState(soloJoin.room);
+      assert.equal(serialized.leaderboard.length, 1);
+    }
+
+    // Fill remaining 44 student slots (total 45)
+    for (let i = 2; i <= 45; i++) {
+      const r = mgr.joinRoom({
+        roomCode: room.code,
+        playerId: `s-${i}`,
+        socketId: `sock-${i}`,
+        name: `Siswa ${i}`,
+        role: 'student',
+      });
+      assert.equal(r.ok, true);
+    }
+
+    // 46th student must be rejected
+    const r46 = mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 's-46',
+      socketId: 'sock-46',
+      name: 'Siswa 46',
+      role: 'student',
+    });
+    assert.equal(r46.ok, false);
+
+    // Leaving lobby removes student and frees slot
+    mgr.leaveRoom(room.code, 's-45');
+    const retry46 = mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 's-46',
+      socketId: 'sock-46',
+      name: 'Siswa 46',
+      role: 'student',
+    });
+    assert.equal(retry46.ok, true);
+
+    // Finalizing removes active room from disk persistence
+    mgr.finalizeRoom(room, 'Selesai');
+    assert.equal(db.getActiveRoomByCode(room.code), null);
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+import { resolveSubmittedAnswer } from './questionSubmission';
+import { generateMathQuestion } from '../shared/questionGenerator';
+
+test('RoomManager persists custom teacher questions and redacts them for student serialization', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db1 = new GameDatabase(tmp.file);
+    const mgr1 = new RoomManager(db1);
+    const room = mgr1.createRoom({
+      teacherId: 'teacher-custom',
+      teacherName: 'Pak Andi',
+      socketId: 'sock-teacher',
+      settings: {
+        questionSource: 'custom_only',
+        customQuestions: [
+          {
+            id: 'q1',
+            prompt: 'Berapakah 12 × 12?',
+            optionA: '144',
+            optionB: '124',
+            correctOption: 'A',
+            explanation: '12 × 12 = 144',
+          },
+        ],
+      },
+    });
+
+    const teacherState = mgr1.serializeRoomState(room, { hideCustomQuestions: false });
+    assert.equal(teacherState.settings.customQuestions.length, 1);
+    assert.equal(teacherState.customQuestionCount, 1);
+
+    const studentState = mgr1.serializeRoomState(room, { hideCustomQuestions: true });
+    assert.equal(studentState.settings.customQuestions.length, 0);
+    assert.equal(studentState.customQuestionCount, 1);
+
+    // Reload from disk and verify custom questions survived
+    const db2 = new GameDatabase(tmp.file);
+    const mgr2 = new RoomManager(db2);
+    const restored = mgr2.resolveRoom(room.code);
+    assert.ok(restored);
+    assert.equal(restored.settings.questionSource, 'custom_only');
+    assert.equal(restored.settings.customQuestions.length, 1);
+    assert.equal(restored.settings.customQuestions[0].correctOption, 'A');
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+test('RoomManager preserves activeQuestion across transient disconnect and ignores stale socketId disconnect', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db = new GameDatabase(tmp.file);
+    const mgr = new RoomManager(db);
+    const room = mgr.createRoom({
+      teacherId: 't-1',
+      teacherName: 'Guru',
+      socketId: 'sock-t',
+    });
+
+    const joined = mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'stu-1',
+      socketId: 'sock-old',
+      name: 'Budi',
+      role: 'student',
+    });
+    assert.equal(joined.ok, true);
+
+    const player = room.players.get('stu-1')!;
+    const q = generateMathQuestion({ difficulty: 'easy' });
+    player.activeQuestion = {
+      keyId: room.maze.keys[0].id,
+      question: q,
+      issuedAt: Date.now(),
+    };
+
+    // Player reconnects with a new socket BEFORE old socket disconnect fires
+    mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'stu-1',
+      socketId: 'sock-new',
+      name: 'Budi',
+      role: 'student',
+    });
+
+    // Old socket disconnect event must NOT mark player disconnected or wipe activeQuestion
+    const staleRes = mgr.markPlayerDisconnected(room.code, 'stu-1', 'sock-old');
+    const updatedPlayer = room.players.get('stu-1')!;
+    assert.equal(staleRes, null);
+    assert.equal(updatedPlayer.connected, true);
+    assert.equal(updatedPlayer.activeQuestion?.question.id, q.id);
+
+    // Actual current socket disconnect marks connected=false but preserves activeQuestion
+    const realDisconnect = mgr.markPlayerDisconnected(room.code, 'stu-1', 'sock-new');
+    assert.ok(realDisconnect);
+    assert.equal(updatedPlayer.connected, false);
+    assert.equal(updatedPlayer.activeQuestion?.question.id, q.id);
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+test('resolveSubmittedAnswer supports paused grading, idempotent replay, and explicit recovery when expired', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db = new GameDatabase(tmp.file);
+    const mgr = new RoomManager(db);
+    const room = mgr.createRoom({
+      teacherId: 't-ans',
+      teacherName: 'Guru',
+      socketId: 'sock-t',
+    });
+    mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'stu-ans',
+      socketId: 'sock-s',
+      name: 'Dewi',
+      role: 'student',
+    });
+
+    room.status = 'paused'; // Even if teacher paused mid-question, open question resolves cleanly
+    const player = room.players.get('stu-ans')!;
+    const key = room.maze.keys[0];
+    const q = generateMathQuestion({ difficulty: 'easy' });
+    player.activeQuestion = {
+      keyId: key.id,
+      question: q,
+      issuedAt: Date.now(),
+    };
+
+    const first = resolveSubmittedAnswer({
+      room,
+      player,
+      payload: {
+        keyId: key.id,
+        questionId: q.id,
+        selectedOption: q.correctOption,
+      },
+      database: db,
+    });
+
+    assert.equal(first.ack.ok, true);
+    assert.equal(first.result?.correct, true);
+    assert.equal(player.keysCollected, 1);
+    assert.equal(player.activeQuestion, null);
+
+    // Retrying exact same questionId replays result without double-counting keys or score
+    const replay = resolveSubmittedAnswer({
+      room,
+      player,
+      payload: {
+        keyId: key.id,
+        questionId: q.id,
+        selectedOption: q.correctOption,
+      },
+      database: db,
+    });
+
+    assert.equal(replay.ack.ok, true);
+    assert.equal(replay.result?.correct, true);
+    assert.equal(player.keysCollected, 1);
+
+    // Submitting an unknown/expired question never drops silently: returns closeModal recovery
+    const expired = resolveSubmittedAnswer({
+      room,
+      player,
+      payload: {
+        keyId: room.maze.keys[1].id,
+        questionId: 'nonexistent-q-id',
+        selectedOption: 'A',
+      },
+      database: db,
+    });
+
+    assert.equal(expired.ack.ok, false);
+    assert.equal(expired.ack.closeModal, true);
+    assert.ok(expired.ack.error && expired.ack.error.length > 0);
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+test('RoomManager.leaveRoom clears teacherSocketId and player.socketId so ended games never emit stale state back to leaving player', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db = new GameDatabase(tmp.file);
+    const mgr = new RoomManager(db);
+
+    // Simulate Quick Play flow: teacherId is "host-${playerId}" and same socket joins as student
+    const playerId = 'stu-quick-1';
+    const socketId = 'sock-quick-1';
+    const room = mgr.createRoom({
+      teacherId: `host-${playerId}`,
+      teacherName: 'Arkan',
+      socketId,
+    });
+    mgr.joinRoom({
+      roomCode: room.code,
+      playerId,
+      socketId,
+      name: 'Arkan',
+      role: 'student',
+    });
+
+    room.status = 'playing';
+    mgr.finalizeRoom(room, 'Misi Selesai!');
+    assert.equal(room.status, 'ended');
+    assert.equal(room.teacherSocketId, socketId);
+
+    // Player clicks "Kembali ke Menu Utama" after game ends
+    const leaveRes = mgr.leaveRoom(room.code, playerId, socketId);
+    assert.ok(leaveRes);
+    assert.equal(leaveRes.room.teacherSocketId, '');
+    assert.equal(leaveRes.room.players.get(playerId)?.connected, false);
+    assert.equal(leaveRes.room.players.get(playerId)?.socketId, '');
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+
