@@ -16,7 +16,7 @@ import {
   normalizeRoomCode,
 } from './shared/constants';
 import { DEFAULT_MAZE_BIOME } from './shared/biomeThemes';
-import { extractRoomCodeFromSearch } from './shared/roomJoinLink';
+import { extractHostTransferParams, extractRoomCodeFromSearch } from './shared/roomJoinLink';
 import { GeneratedMaze, generateProceduralMaze } from './shared/mazeGenerator';
 import { createVictoryLobbyMaze } from './shared/victoryLobbyMap';
 import { SpectatorCameraMode, cycleSpectatedStudentId } from './shared/spectatorCamera';
@@ -83,17 +83,30 @@ function getOrCreatePlayerId(): string {
 }
 
 export default function App() {
+  const [hostTransfer] = useState(() => {
+    try {
+      return typeof window !== 'undefined'
+        ? extractHostTransferParams(window.location.search)
+        : null;
+    } catch {
+      return null;
+    }
+  });
   const [playerId] = useState<string>(() => getOrCreatePlayerId());
-  const [playerName, setPlayerName] = useState<string>('Arya Ksatria');
+  const [playerName, setPlayerName] = useState<string>(() => hostTransfer?.teacherName || 'Arya Ksatria');
   const [characterId, setCharacterId] = useState<string>(CHARACTER_PRESETS[0].id);
   const [outfitColor, setOutfitColor] = useState<string>(CHARACTER_PRESETS[0].primaryColor);
-  const [selectedMode, setSelectedMode] = useState<GameMode>('coop');
-  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>('easy');
-  const [selectedBiome, setSelectedBiome] = useState<MazeBiomeId>(DEFAULT_MAZE_BIOME);
+  const [selectedMode, setSelectedMode] = useState<GameMode>(() => hostTransfer?.mode || 'coop');
+  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>(
+    () => hostTransfer?.difficulty || 'easy'
+  );
+  const [selectedBiome, setSelectedBiome] = useState<MazeBiomeId>(
+    () => hostTransfer?.biome || DEFAULT_MAZE_BIOME
+  );
   const [invitedRoomCode] = useState<string | null>(() => {
     try {
       return typeof window !== 'undefined'
-        ? extractRoomCodeFromSearch(window.location.search)
+        ? extractRoomCodeFromSearch(window.location.search, window.location.hash)
         : null;
     } catch {
       return null;
@@ -618,8 +631,22 @@ export default function App() {
     );
   }, [playerId, playerName, selectedMode, selectedDifficulty, selectedBiome, characterId, outfitColor]);
 
-  // Support ?autostart=1 once on initial mount and Enter/Space on Title screen
+  // Support ?autostart=1 or ?hostRoom=MATH-XXXX (1-click transfer from Preview Editor to Shared App URL)
   useEffect(() => {
+    if (hostTransfer && screenView === 'title' && !hasAutoStartedRef.current) {
+      hasAutoStartedRef.current = true;
+      // Clean URL so refreshing doesn't re-create the room
+      try {
+        window.history.replaceState({}, '', window.location.pathname);
+      } catch {
+        // Ignore history restriction in sandboxed iframes
+      }
+      const t = window.setTimeout(() => {
+        handleCreateRoomAsTeacher(hostTransfer.roomCode);
+      }, 180);
+      return () => clearTimeout(t);
+    }
+
     const params = new URLSearchParams(window.location.search);
     if (params.get('autostart') === '1' && screenView === 'title' && !hasAutoStartedRef.current) {
       hasAutoStartedRef.current = true;
@@ -628,7 +655,7 @@ export default function App() {
       }, 150);
       return () => clearTimeout(t);
     }
-  }, [screenView, handleStartQuickPlay]);
+  }, [hostTransfer, screenView, handleStartQuickPlay]);
 
   useEffect(() => {
     const onGlobalKey = (e: KeyboardEvent) => {
@@ -660,15 +687,12 @@ export default function App() {
           retroAudio.playButtonClick();
           handleToggleMinimap();
         } else if (e.key === 'e' || e.key === 'E') {
-          e.preventDefault();
           const inLobby = Boolean(
             roomState && (localPlayerObj?.status === 'escaped' || roomState.status === 'ended')
           );
           if (inLobby) {
+            e.preventDefault();
             fxTriggerRef.current = { type: 'teleportToPodium' };
-          } else {
-            const doorOpen = isDoorOpenForLocalPlayer();
-            fxTriggerRef.current = { type: doorOpen ? 'teleportToExit' : 'teleportToKey' };
           }
         } else if (e.key >= '1' && e.key <= '6') {
           const idx = Number(e.key) - 1;
@@ -729,7 +753,7 @@ export default function App() {
     );
   };
 
-  const handleCreateRoomAsTeacher = () => {
+  const handleCreateRoomAsTeacher = (preferredCode?: string) => {
     const socket = socketRef.current;
     if (!socket) return;
     if (!socket.connected) {
@@ -751,6 +775,7 @@ export default function App() {
       {
         teacherId: playerId,
         teacherName: playerName.trim(),
+        preferredCode,
         settings: {
           ...DEFAULT_ROOM_SETTINGS,
           mode: selectedMode,

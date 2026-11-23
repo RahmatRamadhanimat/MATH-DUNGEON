@@ -29,11 +29,11 @@ import {
   TeamId,
 } from '../shared/constants';
 import { getMazeBiomeTheme, MAZE_BIOME_LIST } from '../shared/biomeThemes';
-import { buildRoomJoinUrl } from '../shared/roomJoinLink';
+import { buildTeacherTransferUrl, isDevPreviewOrigin } from '../shared/roomJoinLink';
 import { LeaderboardEntry } from '../shared/scoreSystem';
 import { RenderPlayerState } from './MazeCanvasView';
 import { QuestionBankManager } from './QuestionBankManager';
-import { RoomJoinQrCode, RoomJoinQrModal } from './RoomJoinQrCode';
+import { RoomJoinQrCode, RoomJoinQrModal, useEffectiveRoomJoinUrl } from './RoomJoinQrCode';
 import { StudentAnalyticsPanel } from './StudentAnalyticsPanel';
 import { getCharacterAvatarDataUrl } from '../game/assets/PixelArtSprites';
 import { retroAudio } from '../game/audio/RetroAudio';
@@ -100,12 +100,18 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
   const [loadTestResult, setLoadTestResult] = useState<LoadTestMetrics | null>(null);
   const [keepBotsInRoom, setKeepBotsInRoom] = useState(true);
 
-  const isDevPreviewHost =
-    typeof window !== 'undefined' && window.location.hostname.startsWith('ais-dev-');
-  const sharedOrigin =
-    typeof window !== 'undefined'
-      ? window.location.origin.replace('ais-dev-', 'ais-pre-')
-      : '';
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const isDevPreviewHost = isDevPreviewOrigin(currentOrigin);
+  const { joinUrl: effectiveJoinUrl } = useEffectiveRoomJoinUrl(roomCode);
+  const sharedTransferUrl = isDevPreviewHost
+    ? buildTeacherTransferUrl(currentOrigin, {
+        roomCode,
+        teacherName,
+        mode: settings.mode,
+        difficulty: settings.difficulty,
+        biome: settings.biome,
+      })
+    : '';
 
   const studentPlayers = players.filter((p) => p.role === 'student');
   const activeTeams = TEAM_ORDER.slice(0, settings.teamCount);
@@ -117,9 +123,7 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
   };
 
   const handleCopyInviteLink = () => {
-    const base = typeof window !== 'undefined' ? window.location.origin : '';
-    const link = buildRoomJoinUrl(base, roomCode);
-    navigator.clipboard?.writeText(link).catch(() => {});
+    navigator.clipboard?.writeText(effectiveJoinUrl).catch(() => {});
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   };
@@ -173,21 +177,23 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
           <div className="rounded-md bg-amber-950/85 border border-amber-400/80 p-3.5 sm:p-4 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-1">
               <div className="font-bold text-amber-300">
-                Info Host Multiplayer (Preview Editor vs Shared Link)
+                Scan QR di HP Memerlukan Shared App URL atau Aplikasi Ter-Deploy
               </div>
               <p className="text-amber-100/90 leading-relaxed">
-                Anda membuat room di <strong>Preview Editor (ais-dev)</strong>. Untuk bermain lintas
-                perangkat dengan siswa yang membuka <strong>Shared App Link (ais-pre)</strong>, buat room
-                melalui Shared App URL agar berada di server yang sama.
+                Anda sedang berada di <strong>Preview Editor (ais-dev)</strong> yang akan menampilkan{' '}
+                <strong>404</strong> jika di-scan langsung dari HP. Agar QR Code bisa di-scan siswa pada
+                versi game terbaru, klik <strong>Share</strong> / <strong>Deploy</strong> di kanan atas
+                terlebih dahulu untuk memperbarui <strong>Shared App URL (ais-pre)</strong>, lalu buka
+                room <strong className="font-code">{roomCode}</strong> lewat tombol di kanan.
               </p>
             </div>
             <a
-              href={sharedOrigin}
+              href={sharedTransferUrl}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="rpg-btn-gold min-h-[40px] px-4 py-2 font-bold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
             >
-              <span>Buka Shared App URL</span>
+              <span>Buka Room di Shared URL</span>
               <ExternalLink className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
             </a>
           </div>
@@ -963,6 +969,7 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
           open={showQrModal}
           roomCode={roomCode}
           teacherName={teacherName}
+          sharedTransferUrl={sharedTransferUrl || undefined}
           onClose={() => setShowQrModal(false)}
         />
       )}

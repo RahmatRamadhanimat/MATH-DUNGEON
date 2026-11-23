@@ -5,8 +5,6 @@ import {
   ChevronRight,
   ChevronUp,
   Crown,
-  DoorOpen,
-  KeyRound,
   Trophy,
 } from 'lucide-react';
 import {
@@ -101,8 +99,6 @@ export interface FxTriggerPayload {
     | 'correct'
     | 'wrong'
     | 'door'
-    | 'teleportToKey'
-    | 'teleportToExit'
     | 'teleportToPodium'
     | null;
   x?: number;
@@ -620,40 +616,6 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
             lp.screenFlashColor = 'rgba(250, 204, 21, 0.22)';
             lp.screenFlashTimer = 0.28;
             state.onMoveSync(lp.x, lp.y, lp.dir, 'idle');
-          }
-        } else if (trig.type === 'teleportToKey') {
-          if (!state.isQuestionOpen && !state.isPaused && state.localStatus === 'active' && !isLobbyMap) {
-            // Move local player adjacent to nearest uncollected key and trigger its question
-            const available = currentMaze.keys.filter((k) =>
-              isKeyAvailableForMe(k, state.gameMode, state.localPlayerId, state.localTeamId)
-            );
-            if (available.length > 0) {
-              available.sort(
-                (a, b) =>
-                  Math.hypot(a.x - lp.x, a.y - lp.y) - Math.hypot(b.x - lp.x, b.y - lp.y)
-              );
-              const targetKey = available[0];
-              lp.x = targetKey.x;
-              lp.y = targetKey.y;
-              lp.lastKeyTouchedId = targetKey.id;
-              lp.lastKeyTouchTime = now;
-              state.onMoveSync(lp.x, lp.y, lp.dir, 'answering');
-              state.onTouchKey(targetKey.id);
-            }
-          }
-        } else if (trig.type === 'teleportToExit') {
-          if (
-            state.isDoorOpenForMe &&
-            !state.isQuestionOpen &&
-            !state.isPaused &&
-            state.localStatus === 'active' &&
-            !isLobbyMap
-          ) {
-            lp.x = currentMaze.exitTile.x * GAME_RULES.TILE_SIZE + 16;
-            lp.y = currentMaze.exitTile.y * GAME_RULES.TILE_SIZE + 16;
-            lp.exitTriggered = true;
-            state.onMoveSync(lp.x, lp.y, lp.dir, 'idle');
-            state.onReachExit();
           }
         }
         fxTriggerRef.current = { type: null };
@@ -2047,65 +2009,37 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
           <div />
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          {isLobbyMaze ? (
-            <>
-              <button
-                type="button"
-                data-testid="teleport-podium-btn"
-                onClick={() => {
-                  retroAudio.playButtonClick();
-                  fxTriggerRef.current = { type: 'teleportToPodium' };
-                }}
-                className="rpg-btn-gold min-h-[42px] sm:min-h-[38px] px-3 py-2 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap"
-              >
-                <Crown className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                <span className="sm:hidden">Ke Podium Juara</span>
-                <span className="hidden sm:inline">Ke Podium Juara [E]</span>
-              </button>
-              {onOpenVictoryResults && (
-                <button
-                  type="button"
-                  data-testid="lobby-open-results-btn"
-                  onClick={() => {
-                    retroAudio.playButtonClick();
-                    onOpenVictoryResults();
-                  }}
-                  className="rpg-btn-emerald min-h-[42px] sm:min-h-[38px] px-3 py-2 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap"
-                >
-                  <Trophy className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                  <span>Tabel Skor Akhir</span>
-                </button>
-              )}
-            </>
-          ) : !isDoorOpenForMe ? (
+        {isLobbyMaze && (
+          <div className="flex flex-col gap-1.5">
             <button
               type="button"
+              data-testid="teleport-podium-btn"
               onClick={() => {
                 retroAudio.playButtonClick();
-                fxTriggerRef.current = { type: 'teleportToKey' };
+                fxTriggerRef.current = { type: 'teleportToPodium' };
               }}
               className="rpg-btn-gold min-h-[42px] sm:min-h-[38px] px-3 py-2 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap"
             >
-              <KeyRound className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span className="sm:hidden">Ke Kunci Terdekat</span>
-              <span className="hidden sm:inline">Ke Kunci Terdekat [E]</span>
+              <Crown className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <span className="sm:hidden">Ke Podium Juara</span>
+              <span className="hidden sm:inline">Ke Podium Juara [E]</span>
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                retroAudio.playButtonClick();
-                fxTriggerRef.current = { type: 'teleportToExit' };
-              }}
-              className="rpg-btn-emerald min-h-[42px] sm:min-h-[38px] px-3 py-2 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap"
-            >
-              <DoorOpen className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span className="sm:hidden">Ke Pintu Keluar</span>
-              <span className="hidden sm:inline">Masuk Pintu Keluar [E]</span>
-            </button>
-          )}
-        </div>
+            {onOpenVictoryResults && (
+              <button
+                type="button"
+                data-testid="lobby-open-results-btn"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  onOpenVictoryResults();
+                }}
+                className="rpg-btn-emerald min-h-[42px] sm:min-h-[38px] px-3 py-2 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <Trophy className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>Tabel Skor Akhir</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

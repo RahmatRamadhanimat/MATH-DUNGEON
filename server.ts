@@ -412,6 +412,7 @@ async function startServer() {
           teacherId?: string;
           teacherName?: string;
           settings?: Partial<RoomSettings>;
+          preferredCode?: string;
         },
         ack?: (res: { ok: boolean; roomCode?: string; state?: unknown; error?: string }) => void
       ) => {
@@ -424,6 +425,7 @@ async function startServer() {
           teacherName: payload?.teacherName,
           socketId: socket.id,
           settings: payload?.settings,
+          preferredCode: payload?.preferredCode,
         });
 
         currentRoomCode = room.code;

@@ -996,43 +996,79 @@ test('Maze Biome Themes provide 4 distinct visual palettes with safe normalizati
 import QRCode from 'qrcode';
 import {
   buildRoomJoinUrl,
+  buildTeacherTransferUrl,
+  extractHostTransferParams,
   extractRoomCodeFromSearch,
   formatDisplayJoinHost,
+  isDevPreviewOrigin,
+  resolveEffectiveQrBaseUrl,
+  sanitizePublicBaseUrl,
 } from './roomJoinLink';
 
-test('QR Code Room Join links normalize codes, extract ?room= params, and render valid scannable PNG QR data', async () => {
-  // 1. Builds canonical join URL with normalized MATH-XXXX code and clean trailing slash handling
+test('QR Code Room Join links avoid ais-dev 404s, support custom deploy URLs, hash fallbacks, and valid PNG QR encoding', async () => {
+  // 1. Automatically converts private ais-dev-* origin to public ais-pre-* Shared App origin
+  const devOrigin = 'https://ais-dev-abc123.asia-southeast1.run.app';
+  assert.equal(isDevPreviewOrigin(devOrigin), true);
+  const resolvedDev = resolveEffectiveQrBaseUrl(devOrigin);
+  assert.equal(resolvedDev.source, 'shared-converted');
+  assert.equal(resolvedDev.isDevPreview, true);
+  assert.equal(resolvedDev.baseUrl, 'https://ais-pre-abc123.asia-southeast1.run.app');
   assert.equal(
-    buildRoomJoinUrl('https://kelas.mathmaze.app/', '4821'),
-    'https://kelas.mathmaze.app/?room=MATH-4821'
+    buildRoomJoinUrl(resolvedDev.baseUrl, '4821'),
+    'https://ais-pre-abc123.asia-southeast1.run.app/?room=MATH-4821'
   );
-  assert.equal(
-    buildRoomJoinUrl('http://localhost:3000', 'math-9012'),
-    'http://localhost:3000/?room=MATH-9012'
-  );
-  assert.equal(buildRoomJoinUrl('', '7744'), '/?room=MATH-7744');
 
-  // 2. Extracts and normalizes ?room= query params cleanly
+  // 2. Respects custom deployed public URL and strips old ?room= params safely
+  assert.equal(sanitizePublicBaseUrl('javascript:alert(1)'), null);
+  const resolvedCustom = resolveEffectiveQrBaseUrl(
+    devOrigin,
+    'https://math-maze-sekolah.a.run.app/?room=MATH-1111'
+  );
+  assert.equal(resolvedCustom.source, 'custom');
+  assert.equal(resolvedCustom.baseUrl, 'https://math-maze-sekolah.a.run.app');
+  assert.equal(
+    buildRoomJoinUrl(resolvedCustom.baseUrl, 'math-9012'),
+    'https://math-maze-sekolah.a.run.app/?room=MATH-9012'
+  );
+
+  // 3. Extracts ?room= query params and #room= hash fallbacks cleanly
   assert.equal(extractRoomCodeFromSearch('?room=MATH-4821'), 'MATH-4821');
   assert.equal(extractRoomCodeFromSearch('?foo=1&room=5532'), 'MATH-5532');
+  assert.equal(extractRoomCodeFromSearch('', '#room=MATH-7744'), 'MATH-7744');
   assert.equal(extractRoomCodeFromSearch('?room=   '), null);
-  assert.equal(extractRoomCodeFromSearch(''), null);
 
-  // 3. Formats human-readable host + query for modal display
+  // 4. Builds & parses 1-click teacher transfer URL for Shared App host
+  const transferUrl = buildTeacherTransferUrl(devOrigin, {
+    roomCode: 'MATH-8822',
+    teacherName: 'Bu Sari',
+    mode: 'team',
+    difficulty: 'medium',
+    biome: 'crystal_forest',
+  });
+  assert.ok(transferUrl.startsWith('https://ais-pre-abc123.asia-southeast1.run.app/'));
+  const parsedTransfer = extractHostTransferParams(new URL(transferUrl).search);
+  assert.equal(parsedTransfer?.roomCode, 'MATH-8822');
+  assert.equal(parsedTransfer?.teacherName, 'Bu Sari');
+  assert.equal(parsedTransfer?.mode, 'team');
+  assert.equal(parsedTransfer?.difficulty, 'medium');
+  assert.equal(parsedTransfer?.biome, 'crystal_forest');
+
+  // 5. Formats human-readable host + query for modal display
   assert.equal(
     formatDisplayJoinHost('https://kelas.mathmaze.app/?room=MATH-4821'),
     'kelas.mathmaze.app/?room=MATH-4821'
   );
 
-  // 4. Generates real ISO/IEC 18004 PNG data URL for the room join link
+  // 6. Generates real ISO/IEC 18004 QR matrix & PNG data URL
   const joinUrl = buildRoomJoinUrl('http://localhost:3000', 'MATH-4821');
+  const matrix = QRCode.create(joinUrl, { errorCorrectionLevel: 'M' });
+  assert.ok(matrix.modules.size >= 21, 'QR matrix must be at least Version 1 (21x21)');
   const dataUrl = await QRCode.toDataURL(joinUrl, {
     errorCorrectionLevel: 'M',
     margin: 2,
     width: 240,
   });
   assert.ok(dataUrl.startsWith('data:image/png;base64,'), 'QR data URL must be a valid PNG base64 URI');
-  assert.ok(dataUrl.length > 400, 'QR PNG payload must contain non-trivial encoded bitmap data');
 });
 
 

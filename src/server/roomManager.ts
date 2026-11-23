@@ -400,8 +400,17 @@ export class RoomManager {
     teacherName?: string;
     socketId: string;
     settings?: Partial<RoomSettings>;
+    preferredCode?: string;
   }): GameRoom {
-    const code = this.generateRoomCode();
+    const normalizedPreferred = params.preferredCode
+      ? normalizeRoomCode(params.preferredCode)
+      : '';
+    const canUsePreferred =
+      Boolean(normalizedPreferred) &&
+      normalizedPreferred !== 'MATH-4821' &&
+      !this.rooms.has(normalizedPreferred) &&
+      !this.database.getActiveRoomByCode(normalizedPreferred);
+    const code = canUsePreferred ? normalizedPreferred : this.generateRoomCode();
     const teacherId = params.teacherId || `teacher-${params.socketId}`;
     const teacherName = (params.teacherName || 'Guru Matematika').trim().slice(0, 40);
     const settings = sanitizeRoomSettings(DEFAULT_ROOM_SETTINGS, params.settings);

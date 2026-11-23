@@ -2313,6 +2313,45 @@
       "totalCorrect": 0,
       "totalWrong": 0,
       "lastActiveAt": "2026-11-23T02:33:08.204Z"
+    },
+    "plr-d1ib0ns-mwssnztc": {
+      "id": "plr-d1ib0ns-mwssnztc",
+      "name": "Bu Sari",
+      "role": "teacher",
+      "characterId": "scholar",
+      "outfitColor": "#0891B2",
+      "gamesPlayed": 0,
+      "totalScore": 0,
+      "totalKeys": 0,
+      "totalCorrect": 0,
+      "totalWrong": 0,
+      "lastActiveAt": "2026-11-23T04:57:27.316Z"
+    },
+    "host-plr-re3xmqg-mwst8idj": {
+      "id": "host-plr-re3xmqg-mwst8idj",
+      "name": "Arya Ksatria",
+      "role": "teacher",
+      "characterId": "scholar",
+      "outfitColor": "#0891B2",
+      "gamesPlayed": 0,
+      "totalScore": 0,
+      "totalKeys": 0,
+      "totalCorrect": 0,
+      "totalWrong": 0,
+      "lastActiveAt": "2026-11-23T05:13:26.041Z"
+    },
+    "plr-re3xmqg-mwst8idj": {
+      "id": "plr-re3xmqg-mwst8idj",
+      "name": "Arya Ksatria",
+      "role": "student",
+      "characterId": "knight",
+      "outfitColor": "#2563EB",
+      "gamesPlayed": 0,
+      "totalScore": 0,
+      "totalKeys": 0,
+      "totalCorrect": 0,
+      "totalWrong": 0,
+      "lastActiveAt": "2026-11-23T05:13:26.049Z"
     }
   },
   "gameHistory": [
@@ -4868,6 +4907,274 @@
           "text": "Room MATH-6300 dibuat oleh Arya Ksatria. Maksimal 45 siswa.",
           "type": "system",
           "timestamp": 1795401188204
+        }
+      ]
+    },
+    "MATH-7421": {
+      "code": "MATH-7421",
+      "teacherId": "plr-d1ib0ns-mwssnztc",
+      "teacherName": "Bu Sari",
+      "locked": false,
+      "status": "lobby",
+      "settings": {
+        "mode": "team",
+        "difficulty": "medium",
+        "categories": [
+          "fractions",
+          "percentages",
+          "negative_numbers",
+          "mixed_ops",
+          "exponents",
+          "square_roots"
+        ],
+        "questionSource": "auto",
+        "customQuestions": [],
+        "keyCount": 5,
+        "mapLevel": 1,
+        "biome": "crystal_forest",
+        "maxPlayers": 45,
+        "lives": 3,
+        "durationSeconds": 300,
+        "questionTimerSeconds": 25,
+        "teamCount": 4,
+        "teamAssignmentMode": "random",
+        "eliminatedBehavior": "spectator"
+      },
+      "mazeSeed": 958499991,
+      "remainingSeconds": 300,
+      "startedAt": null,
+      "createdAt": 1795409847316,
+      "sharedKeysCollected": 0,
+      "teamKeysCollected": {
+        "red": 0,
+        "blue": 0,
+        "green": 0,
+        "yellow": 0,
+        "purple": 0
+      },
+      "doorOpen": false,
+      "teamDoorOpen": {
+        "red": false,
+        "blue": false,
+        "green": false,
+        "yellow": false,
+        "purple": false
+      },
+      "playerDoorOpen": [],
+      "collectedKeys": [
+        {
+          "id": "key-1",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-2",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-3",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-4",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-5",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        }
+      ],
+      "players": [
+        {
+          "id": "plr-d1ib0ns-mwssnztc",
+          "name": "Bu Sari",
+          "role": "teacher",
+          "characterId": "scholar",
+          "outfitColor": "#0891B2",
+          "teamId": null,
+          "ready": true,
+          "x": 112,
+          "y": 112,
+          "direction": "right",
+          "score": 0,
+          "lives": 3,
+          "keysCollected": 0,
+          "correctAnswers": 0,
+          "wrongAnswers": 0,
+          "status": "active",
+          "completionTimeSeconds": null
+        }
+      ],
+      "chatHistory": [
+        {
+          "id": "sys-1795409847316",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Room MATH-7421 dibuat oleh Bu Sari. Maksimal 45 siswa.",
+          "type": "system",
+          "timestamp": 1795409847316
+        }
+      ]
+    },
+    "MATH-1309": {
+      "code": "MATH-1309",
+      "teacherId": "host-plr-re3xmqg-mwst8idj",
+      "teacherName": "Arya Ksatria",
+      "locked": false,
+      "status": "playing",
+      "settings": {
+        "mode": "coop",
+        "difficulty": "easy",
+        "categories": [
+          "addition",
+          "subtraction",
+          "multiplication",
+          "division",
+          "basic_ops"
+        ],
+        "questionSource": "auto",
+        "customQuestions": [],
+        "keyCount": 5,
+        "mapLevel": 1,
+        "biome": "stone_dungeon",
+        "maxPlayers": 45,
+        "lives": 3,
+        "durationSeconds": 300,
+        "questionTimerSeconds": 25,
+        "teamCount": 4,
+        "teamAssignmentMode": "random",
+        "eliminatedBehavior": "spectator"
+      },
+      "mazeSeed": 747586824,
+      "remainingSeconds": 281,
+      "startedAt": 1795410806136,
+      "createdAt": 1795410806040,
+      "sharedKeysCollected": 0,
+      "teamKeysCollected": {
+        "red": 0,
+        "blue": 0,
+        "green": 0,
+        "yellow": 0,
+        "purple": 0
+      },
+      "doorOpen": false,
+      "teamDoorOpen": {
+        "red": false,
+        "blue": false,
+        "green": false,
+        "yellow": false,
+        "purple": false
+      },
+      "playerDoorOpen": [],
+      "collectedKeys": [
+        {
+          "id": "key-1",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-2",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-3",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-4",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-5",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        }
+      ],
+      "players": [
+        {
+          "id": "host-plr-re3xmqg-mwst8idj",
+          "name": "Arya Ksatria",
+          "role": "teacher",
+          "characterId": "scholar",
+          "outfitColor": "#0891B2",
+          "teamId": null,
+          "ready": true,
+          "x": 102,
+          "y": 102,
+          "direction": "right",
+          "score": 0,
+          "lives": 3,
+          "keysCollected": 0,
+          "correctAnswers": 0,
+          "wrongAnswers": 0,
+          "status": "active",
+          "completionTimeSeconds": null
+        },
+        {
+          "id": "plr-re3xmqg-mwst8idj",
+          "name": "Arya Ksatria",
+          "role": "student",
+          "characterId": "knight",
+          "outfitColor": "#2563EB",
+          "teamId": null,
+          "ready": true,
+          "x": 112,
+          "y": 102,
+          "direction": "right",
+          "score": 0,
+          "lives": 3,
+          "keysCollected": 0,
+          "correctAnswers": 0,
+          "wrongAnswers": 0,
+          "status": "active",
+          "completionTimeSeconds": null
+        }
+      ],
+      "chatHistory": [
+        {
+          "id": "sys-1795410806040",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Room MATH-1309 dibuat oleh Arya Ksatria. Maksimal 45 siswa.",
+          "type": "system",
+          "timestamp": 1795410806040
+        },
+        {
+          "id": "sys-1795410806051-405",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Arya Ksatria bergabung ke dalam room.",
+          "type": "system",
+          "timestamp": 1795410806051
+        },
+        {
+          "id": "sys-1795410806136-482",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Permainan dimulai! Jelajahi labirin dan temukan kunci matematika!",
+          "type": "system",
+          "timestamp": 1795410806136
         }
       ]
     }
