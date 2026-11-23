@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import {
   Activity,
+  BarChart3,
   Check,
   Copy,
   ExternalLink,
   Link2,
   Lock,
   LogOut,
+  Maximize2,
   Play,
+  QrCode,
   Shuffle,
   SlidersHorizontal,
+  Tv,
   Unlock,
   Users,
 } from 'lucide-react';
@@ -24,8 +28,13 @@ import {
   TEAM_ORDER,
   TeamId,
 } from '../shared/constants';
+import { getMazeBiomeTheme, MAZE_BIOME_LIST } from '../shared/biomeThemes';
+import { buildRoomJoinUrl } from '../shared/roomJoinLink';
+import { LeaderboardEntry } from '../shared/scoreSystem';
 import { RenderPlayerState } from './MazeCanvasView';
 import { QuestionBankManager } from './QuestionBankManager';
+import { RoomJoinQrCode, RoomJoinQrModal } from './RoomJoinQrCode';
+import { StudentAnalyticsPanel } from './StudentAnalyticsPanel';
 import { getCharacterAvatarDataUrl } from '../game/assets/PixelArtSprites';
 import { retroAudio } from '../game/audio/RetroAudio';
 
@@ -51,6 +60,7 @@ interface MultiplayerLobbyViewProps {
   settings: RoomSettings;
   customQuestionCount?: number;
   players: RenderPlayerState[];
+  leaderboard?: LeaderboardEntry[];
   localPlayerId: string;
   localRole: 'teacher' | 'student';
   localReady: boolean;
@@ -59,6 +69,7 @@ interface MultiplayerLobbyViewProps {
   onToggleLockRoom: () => void;
   onAssignTeams: (mode: 'random' | 'manual', manualMap?: Record<string, TeamId>) => void;
   onStartGame: () => void;
+  onOpenProjectorMode?: () => void;
   onLeaveLobby: () => void;
 }
 
@@ -69,6 +80,7 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
   settings,
   customQuestionCount,
   players,
+  leaderboard,
   localPlayerId,
   localRole,
   localReady,
@@ -77,10 +89,13 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
   onToggleLockRoom,
   onAssignTeams,
   onStartGame,
+  onOpenProjectorMode,
   onLeaveLobby,
 }) => {
+  const [activeLobbyTab, setActiveLobbyTab] = useState<'setup' | 'analytics'>('setup');
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
   const [loadTestRunning, setLoadTestRunning] = useState(false);
   const [loadTestResult, setLoadTestResult] = useState<LoadTestMetrics | null>(null);
   const [keepBotsInRoom, setKeepBotsInRoom] = useState(true);
@@ -103,7 +118,7 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
 
   const handleCopyInviteLink = () => {
     const base = typeof window !== 'undefined' ? window.location.origin : '';
-    const link = `${base}/?room=${encodeURIComponent(roomCode)}`;
+    const link = buildRoomJoinUrl(base, roomCode);
     navigator.clipboard?.writeText(link).catch(() => {});
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
@@ -180,41 +195,89 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
 
         {/* Lobby Header Command Bar */}
         <header className="rpg-panel p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-amber-300">
-              <span>Lobby Kelas Multiplayer</span>
-              <span aria-hidden="true" className="text-slate-500">·</span>
-              <span className="text-slate-300">Guru: {teacherName}</span>
-              <span aria-hidden="true" className="text-slate-500">·</span>
-              <span className={locked ? 'text-red-300' : 'text-emerald-400'}>
-                {locked ? 'Room Terkunci' : 'Terbuka untuk Siswa'}
-              </span>
-            </div>
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-3.5 sm:gap-4 min-w-0">
+            <div className="space-y-2 min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-amber-300">
+                <span>Lobby Kelas Multiplayer</span>
+                <span aria-hidden="true" className="text-slate-500">·</span>
+                <span className="text-slate-300">Guru: {teacherName}</span>
+                <span aria-hidden="true" className="text-slate-500">·</span>
+                <span className={locked ? 'text-red-300' : 'text-emerald-400'}>
+                  {locked ? 'Room Terkunci' : 'Terbuka untuk Siswa'}
+                </span>
+              </div>
 
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-xl sm:text-3xl font-bold tracking-wide text-white">
+              <h1 className="text-xl sm:text-3xl font-bold tracking-wide text-white whitespace-nowrap leading-none">
                 Kode:{' '}
                 <span className="font-code text-amber-400 tracking-wider" data-testid="lobby-room-code">
                   {roomCode}
                 </span>
               </h1>
-              <button
-                type="button"
-                onClick={handleCopyCode}
-                className="rpg-btn-slate min-h-[38px] px-3 py-1.5 text-xs font-medium text-slate-200 flex items-center gap-1.5 whitespace-nowrap"
-              >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copied ? 'Kode Disalin' : 'Salin Kode'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleCopyInviteLink}
-                className="min-h-[38px] px-3 py-1.5 rounded-md bg-sky-950/90 hover:bg-sky-900 border border-sky-400/70 text-xs font-medium text-sky-100 flex items-center gap-1.5 whitespace-nowrap transition-colors"
-              >
-                <Link2 className="w-3.5 h-3.5 text-sky-300" aria-hidden="true" />
-                <span>{copiedLink ? 'Link Disalin' : 'Salin Link'}</span>
-              </button>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyCode}
+                  className="rpg-btn-slate min-h-[36px] px-3 py-1.5 text-xs font-medium text-slate-200 flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copied ? 'Kode Disalin' : 'Salin Kode'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyInviteLink}
+                  className="min-h-[36px] px-3 py-1.5 rounded-md bg-sky-950/90 hover:bg-sky-900 border border-sky-400/70 text-xs font-medium text-sky-100 flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                >
+                  <Link2 className="w-3.5 h-3.5 text-sky-300" aria-hidden="true" />
+                  <span>{copiedLink ? 'Link Disalin' : 'Salin Link'}</span>
+                </button>
+                {localRole === 'teacher' && (
+                  <button
+                    type="button"
+                    data-testid="lobby-qr-enlarge-btn"
+                    onClick={() => {
+                      retroAudio.playButtonClick();
+                      setShowQrModal(true);
+                    }}
+                    className="min-h-[36px] px-3 py-1.5 rounded-md bg-amber-950/80 hover:bg-amber-900/90 border border-amber-400/70 text-xs font-semibold text-amber-200 flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                  >
+                    <QrCode className="w-3.5 h-3.5 text-amber-300 shrink-0" aria-hidden="true" />
+                    <span>Perbesar QR</span>
+                  </button>
+                )}
+              </div>
             </div>
+
+            {localRole === 'teacher' && (
+              <button
+                type="button"
+                data-testid="lobby-qr-tile-btn"
+                aria-label={`Scan atau perbesar QR Code room ${roomCode}`}
+                title="Klik untuk memperbesar QR Code agar mudah di-scan siswa"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  setShowQrModal(true);
+                }}
+                className="group shrink-0 rounded-lg bg-[#0b101b] hover:bg-[#131b2b] border border-amber-400/75 hover:border-amber-300 p-1.5 flex items-center gap-2.5 text-left transition-colors"
+              >
+                <div className="p-1 rounded-md bg-white shadow-sm shrink-0">
+                  <RoomJoinQrCode
+                    roomCode={roomCode}
+                    sizePx={72}
+                    testId="lobby-room-qr-img"
+                  />
+                </div>
+                <div className="hidden xl:flex flex-col justify-center pr-1.5 max-w-[104px]">
+                  <span className="text-[11px] font-bold text-amber-300 leading-tight flex items-center gap-1">
+                    <span>Scan QR</span>
+                    <Maximize2 className="w-3 h-3 opacity-80 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                  </span>
+                  <span className="text-[10px] text-slate-300 leading-snug mt-0.5">
+                    Kamera HP / tablet langsung masuk
+                  </span>
+                </div>
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-stretch sm:items-center gap-2.5">
@@ -230,6 +293,22 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
 
             {localRole === 'teacher' ? (
               <>
+                {onOpenProjectorMode && (
+                  <button
+                    type="button"
+                    data-testid="lobby-projector-mode-btn"
+                    title="Tampilkan Layar Proyektor / TV Kelas"
+                    onClick={() => {
+                      retroAudio.playButtonClick();
+                      onOpenProjectorMode();
+                    }}
+                    className="min-h-[44px] px-3.5 py-2 rounded-md font-semibold text-xs border bg-sky-950/90 hover:bg-sky-900 border-sky-400/70 text-sky-100 flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
+                  >
+                    <Tv className="w-3.5 h-3.5 text-sky-300 shrink-0" aria-hidden="true" />
+                    <span>Mode TV Kelas</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
@@ -287,7 +366,61 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
           </div>
         </header>
 
-        {/* Main 2-Column Content Grid */}
+        {/* Teacher View Navigation Tabs: Room Setup vs Student Analytics */}
+        <nav
+          aria-label="Navigasi Panel Guru"
+          className="rpg-panel p-2 flex flex-wrap items-center justify-between gap-2"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              data-testid="teacher-setup-tab"
+              aria-selected={activeLobbyTab === 'setup'}
+              onClick={() => {
+                retroAudio.playButtonClick();
+                setActiveLobbyTab('setup');
+              }}
+              className={`min-h-[40px] px-4 py-2 rounded-md text-xs sm:text-sm font-bold flex items-center gap-2 transition-colors ${
+                activeLobbyTab === 'setup'
+                  ? 'bg-amber-400 text-slate-950 shadow-[0_2px_0_#92400E]'
+                  : 'bg-[#0b101b] text-slate-300 hover:text-white border border-slate-700/80'
+              }`}
+            >
+              <SlidersHorizontal className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span>Pengaturan &amp; Daftar Siswa</span>
+            </button>
+
+            <button
+              type="button"
+              data-testid="teacher-analytics-tab"
+              aria-selected={activeLobbyTab === 'analytics'}
+              onClick={() => {
+                retroAudio.playButtonClick();
+                setActiveLobbyTab('analytics');
+              }}
+              className={`min-h-[40px] px-4 py-2 rounded-md text-xs sm:text-sm font-bold flex items-center gap-2 transition-colors ${
+                activeLobbyTab === 'analytics'
+                  ? 'bg-sky-400 text-slate-950 shadow-[0_2px_0_#0369A1]'
+                  : 'bg-[#0b101b] text-sky-200 hover:text-white border border-sky-500/50'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span>Student Analytics</span>
+              <span className="font-code text-[10px] px-1.5 py-0.5 rounded bg-slate-900/80 text-amber-300 border border-amber-400/40">
+                Learning Gaps
+              </span>
+            </button>
+          </div>
+
+          <span className="hidden md:inline text-xs text-slate-400 px-2">
+            Pantau waktu respons rata-rata &amp; topik kesalahan matematika siswa dengan grafik interaktif
+          </span>
+        </nav>
+
+        {activeLobbyTab === 'analytics' ? (
+          <StudentAnalyticsPanel roomCode={roomCode} liveLeaderboard={leaderboard} />
+        ) : (
+        /* Main 2-Column Content Grid */
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-start">
           {/* LEFT COLUMN: Configuration, Custom Question Bank & Load Test */}
           <div className="lg:col-span-7 space-y-4 sm:space-y-5">
@@ -384,6 +517,60 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
                       >
                         <div className="text-xs sm:text-sm font-bold">{d.label}</div>
                         <div className="text-[11px] text-slate-400 mt-0.5">{d.sub}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Maze Biome Theme Selector */}
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-xs font-semibold text-slate-300">
+                    Tema Bioma Labirin
+                  </span>
+                  <span
+                    data-testid="lobby-active-biome-label"
+                    className="text-xs font-semibold"
+                    style={{ color: getMazeBiomeTheme(settings.biome).accentHex }}
+                  >
+                    {getMazeBiomeTheme(settings.biome).name}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {MAZE_BIOME_LIST.map((b) => {
+                    const active = (settings.biome ?? 'stone_dungeon') === b.id;
+                    return (
+                      <button
+                        key={b.id}
+                        type="button"
+                        data-testid={`lobby-biome-btn-${b.id}`}
+                        aria-pressed={active}
+                        disabled={localRole !== 'teacher'}
+                        onClick={() => {
+                          retroAudio.playButtonClick();
+                          onUpdateSettings({ biome: b.id });
+                        }}
+                        className={`rounded-md p-2.5 text-left border transition-colors ${
+                          active
+                            ? 'bg-slate-800/95 text-white'
+                            : 'bg-[#0b101b] border-slate-700/80 text-slate-300 hover:border-slate-500 disabled:opacity-75'
+                        }`}
+                        style={active ? { borderColor: b.accentHex } : undefined}
+                      >
+                        <div className="flex items-center gap-1 mb-2" aria-hidden="true">
+                          {b.swatchColors.map((hex, idx) => (
+                            <span
+                              key={idx}
+                              className="h-2.5 flex-1 rounded-[2px] border border-black/35"
+                              style={{ backgroundColor: hex }}
+                            />
+                          ))}
+                        </div>
+                        <div className="text-xs font-bold leading-tight">{b.name}</div>
+                        <div className="text-[11px] text-slate-400 leading-snug mt-0.5 line-clamp-2">
+                          {b.tagline}
+                        </div>
                       </button>
                     );
                   })}
@@ -768,7 +955,17 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
             )}
           </aside>
         </div>
+        )}
       </div>
+
+      {localRole === 'teacher' && (
+        <RoomJoinQrModal
+          open={showQrModal}
+          roomCode={roomCode}
+          teacherName={teacherName}
+          onClose={() => setShowQrModal(false)}
+        />
+      )}
     </div>
   );
 };

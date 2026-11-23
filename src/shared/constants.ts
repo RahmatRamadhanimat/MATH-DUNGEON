@@ -1,3 +1,7 @@
+import { DEFAULT_MAZE_BIOME, MazeBiomeId } from './biomeThemes';
+
+export type { MazeBiomeId };
+
 export type GameMode = 'coop' | 'competitive' | 'team';
 export type DifficultyLevel = 'easy' | 'medium' | 'hard';
 export type KeyType = 'bronze' | 'silver' | 'golden' | 'crystal';
@@ -265,8 +269,9 @@ export const SOCKET_EVENTS = {
   DOOR_OPENED_BROADCAST: 'door:opened',
   PLAYER_REACHED_EXIT: 'player:exit',
 
-  // Communication
+  // Communication & Overhead Emotes
   CHAT_MESSAGE: 'chat:message',
+  PLAYER_EMOTE: 'player:emote',
   SYSTEM_NOTIFICATION: 'system:notification',
 
   // Heartbeat
@@ -297,6 +302,7 @@ export interface RoomSettings {
   customQuestions: CustomQuestionItem[];
   keyCount: number;
   mapLevel: number; // 1..5
+  biome: MazeBiomeId;
   maxPlayers: number; // up to 45
   lives: number;
   durationSeconds: number;
@@ -314,6 +320,7 @@ export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   customQuestions: [],
   keyCount: 5,
   mapLevel: 1,
+  biome: DEFAULT_MAZE_BIOME,
   maxPlayers: 45,
   lives: 3,
   durationSeconds: 300,

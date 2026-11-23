@@ -6,6 +6,7 @@ import {
   Info,
   KeyRound,
   Play,
+  QrCode,
   RefreshCw,
   Shield,
   Sparkles,
@@ -19,9 +20,11 @@ import {
   DifficultyLevel,
   GameMode,
   MATH_CATEGORIES,
+  MazeBiomeId,
   OUTFIT_COLORS,
   TileType,
 } from '../shared/constants';
+import { getMazeBiomeTheme, MAZE_BIOME_LIST } from '../shared/biomeThemes';
 import { generateProceduralMaze } from '../shared/mazeGenerator';
 import {
   getCharacterAvatarDataUrl,
@@ -29,6 +32,7 @@ import {
   getKeySprite,
   getTileSprite,
 } from '../game/assets/PixelArtSprites';
+import { StudentAnalyticsPanel } from './StudentAnalyticsPanel';
 import { retroAudio } from '../game/audio/RetroAudio';
 
 interface AnalyticsData {
@@ -67,7 +71,9 @@ interface TitleMenuScreenProps {
   outfitColor: string;
   selectedMode: GameMode;
   selectedDifficulty: DifficultyLevel;
+  selectedBiome: MazeBiomeId;
   roomCodeInput: string;
+  invitedRoomCode?: string | null;
   errorMessage: string | null;
   muted: boolean;
   volume: number;
@@ -76,6 +82,7 @@ interface TitleMenuScreenProps {
   onChangeOutfitColor: (hex: string) => void;
   onChangeMode: (mode: GameMode) => void;
   onChangeDifficulty: (diff: DifficultyLevel) => void;
+  onChangeBiome: (biome: MazeBiomeId) => void;
   onChangeRoomCodeInput: (code: string) => void;
   onStartQuickPlay: () => void;
   onJoinRoomAsStudent: (overrideCode?: string) => void;
@@ -100,7 +107,9 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
   outfitColor,
   selectedMode,
   selectedDifficulty,
+  selectedBiome,
   roomCodeInput,
+  invitedRoomCode,
   errorMessage,
   muted,
   volume,
@@ -109,6 +118,7 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
   onChangeOutfitColor,
   onChangeMode,
   onChangeDifficulty,
+  onChangeBiome,
   onChangeRoomCodeInput,
   onStartQuickPlay,
   onJoinRoomAsStudent,
@@ -117,6 +127,8 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
   onChangeVolume,
 }) => {
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const selectedBiomeRef = useRef<MazeBiomeId>(selectedBiome);
+  selectedBiomeRef.current = selectedBiome;
   const [activeModal, setActiveModal] = useState<'none' | 'howto' | 'settings' | 'history' | 'credits'>('none');
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [activeRooms, setActiveRooms] = useState<ActiveRoomSummary[]>([]);
@@ -170,7 +182,10 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
     const renderBg = (now: number) => {
       const w = canvas.width;
       const h = canvas.height;
-      ctx.fillStyle = '#090D15';
+      const bgBiome = selectedBiomeRef.current;
+      const bgTheme = getMazeBiomeTheme(bgBiome);
+
+      ctx.fillStyle = bgTheme.voidBgHex;
       ctx.fillRect(0, 0, w, h);
 
       const zoom = 2;
@@ -185,7 +200,7 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
       for (let y = 0; y < demoMaze.height; y++) {
         for (let x = 0; x < demoMaze.width; x++) {
           const tile = demoMaze.grid[y][x];
-          const sprite = getTileSprite(tile, frame);
+          const sprite = getTileSprite(tile, frame, (x * 7 + y * 13) & 3, bgBiome);
           ctx.drawImage(sprite, x * 32, y * 32, 32, 32);
           if (tile === TileType.TORCH_WALL) {
             const grad = ctx.createRadialGradient(
@@ -196,8 +211,8 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
               y * 32 + 16,
               36
             );
-            grad.addColorStop(0, 'rgba(251, 191, 36, 0.25)');
-            grad.addColorStop(1, 'rgba(251, 191, 36, 0)');
+            grad.addColorStop(0, bgTheme.torchGlowRgbaStart);
+            grad.addColorStop(1, bgTheme.torchGlowRgbaEnd);
             ctx.fillStyle = grad;
             ctx.beginPath();
             ctx.arc(x * 32 + 16, y * 32 + 16, 36, 0, Math.PI * 2);
@@ -506,6 +521,45 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
                 </span>
               </div>
 
+              {invitedRoomCode && (
+                <div
+                  data-testid="qr-invited-join-banner"
+                  className="rounded-md bg-gradient-to-r from-sky-500/20 via-sky-950/60 to-[#0b101b] border border-sky-400/80 p-3.5 sm:p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3"
+                >
+                  <div className="min-w-0 flex items-start gap-2.5">
+                    <div className="w-9 h-9 rounded-md bg-sky-500/20 border border-sky-400/60 flex items-center justify-center shrink-0 mt-0.5">
+                      <QrCode className="w-5 h-5 text-sky-300" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-sky-300">
+                        Scan QR Terdeteksi · Tanpa Ketik Kode
+                      </div>
+                      <div className="text-sm sm:text-base font-bold text-white mt-0.5">
+                        Undangan Room{' '}
+                        <span className="font-code text-amber-300 tracking-wider">
+                          {invitedRoomCode}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300 mt-0.5 leading-snug">
+                        Pastikan nama & karakter di kiri sudah sesuai, lalu ketuk untuk langsung masuk ke lobby.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="qr-invited-join-btn"
+                    onClick={() => {
+                      retroAudio.playButtonClick();
+                      onJoinRoomAsStudent(invitedRoomCode);
+                    }}
+                    className="min-h-[46px] px-4 py-2.5 rounded-md bg-sky-400 hover:bg-sky-300 active:translate-y-[1px] text-slate-950 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 whitespace-nowrap shrink-0 transition-colors"
+                  >
+                    <KeyRound className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    <span>Gabung {invitedRoomCode}</span>
+                  </button>
+                </div>
+              )}
+
               {/* 3 Game Modes */}
               <div>
                 <span className="block text-xs font-semibold text-slate-300 mb-2">
@@ -592,6 +646,58 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
                       >
                         <div className="text-xs sm:text-sm font-bold leading-tight">{d.label}</div>
                         <div className="text-[11px] text-slate-400 leading-tight mt-0.5">{d.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Maze Biome Theme Selector (Live previews in background!) */}
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className="text-xs font-semibold text-slate-300">
+                    Tema Bioma Labirin
+                  </span>
+                  <span
+                    className="text-[11px] font-medium truncate"
+                    style={{ color: getMazeBiomeTheme(selectedBiome).accentHex }}
+                  >
+                    {getMazeBiomeTheme(selectedBiome).tagline}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {MAZE_BIOME_LIST.map((b) => {
+                    const active = selectedBiome === b.id;
+                    return (
+                      <button
+                        key={b.id}
+                        type="button"
+                        data-testid={`title-biome-btn-${b.id}`}
+                        aria-pressed={active}
+                        onClick={() => {
+                          retroAudio.playButtonClick();
+                          onChangeBiome(b.id);
+                        }}
+                        className={`rounded-md p-2 border text-left transition-colors ${
+                          active
+                            ? 'bg-slate-800/90 text-white'
+                            : 'bg-[#0b101b] border-slate-700/80 text-slate-300 hover:border-slate-500'
+                        }`}
+                        style={active ? { borderColor: b.accentHex } : undefined}
+                      >
+                        <div className="flex items-center gap-1 mb-1.5" aria-hidden="true">
+                          {b.swatchColors.map((hex, i) => (
+                            <span
+                              key={i}
+                              className="h-2 flex-1 rounded-[2px] border border-black/30"
+                              style={{ backgroundColor: hex }}
+                            />
+                          ))}
+                        </div>
+                        <div className="text-xs font-bold leading-tight truncate">{b.name}</div>
+                        <div className="text-[10px] text-slate-400 leading-tight mt-0.5 truncate">
+                          {b.shortTag}
+                        </div>
                       </button>
                     );
                   })}
@@ -728,7 +834,7 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
       {/* Single Flat Control Hint Line in Safe Margin */}
       <div className="relative z-10 text-center pb-3.5 px-4 text-xs text-slate-400">
         <span className="hidden sm:inline">
-          WASD / Panah Bergerak · Sentuh Kunci untuk Soal A/B · P Pause · M Audio
+          WASD / Panah Bergerak · Sentuh Kunci untuk Soal A/B · P Pause · M Audio · N Peta
         </span>
         <span className="sm:hidden">
           D-Pad Sentuh Bergerak · Sentuh Kunci untuk Jawab Soal A/B
@@ -742,12 +848,16 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
         >
-          <div className="rpg-modal w-full max-w-2xl p-5 sm:p-6 text-slate-100 max-h-[88dvh] overflow-y-auto rpg-scroll space-y-4">
+          <div
+            className={`rpg-modal w-full ${
+              activeModal === 'history' ? 'max-w-5xl' : 'max-w-2xl'
+            } p-5 sm:p-6 text-slate-100 max-h-[88dvh] overflow-y-auto rpg-scroll space-y-4`}
+          >
             <div className="flex items-start justify-between gap-3 border-b border-slate-700/80 pb-3">
               <h2 className="text-lg font-bold text-amber-300">
                 {activeModal === 'howto' && 'Cara Bermain Math Maze'}
                 {activeModal === 'settings' && 'Pengaturan Audio'}
-                {activeModal === 'history' && 'Riwayat Kelas & Statistik'}
+                {activeModal === 'history' && 'Riwayat Kelas & Student Analytics'}
                 {activeModal === 'credits' && 'Tentang Math Maze'}
               </h2>
               <button
@@ -834,72 +944,36 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
             )}
 
             {activeModal === 'history' && (
-              <>
-                {!analytics ? (
-                  <p className="text-sm text-slate-400 py-4">Memuat data riwayat kelas...</p>
-                ) : (
-                  <div className="space-y-4 text-sm">
-                    <div className="rpg-well p-3 flex items-center justify-between">
-                      <span className="text-xs text-slate-400">Penyimpanan Data</span>
-                      <span className="font-code text-xs text-emerald-400 font-semibold">
-                        {analytics.databaseEngine}
-                      </span>
-                    </div>
+              <div className="space-y-4 text-sm">
+                <StudentAnalyticsPanel />
 
-                    <div>
-                      <div className="text-xs font-semibold text-amber-300 mb-2">
-                        Riwayat Sesi Terakhir
-                      </div>
-                      <div className="space-y-2">
-                        {analytics.gameHistory.slice(0, 5).map((item) => (
-                          <div
-                            key={item.id}
-                            className="rpg-well p-3 flex items-center justify-between gap-2"
-                          >
-                            <div className="min-w-0">
-                              <div className="font-semibold text-white text-xs sm:text-sm">
-                                <span className="font-code text-amber-300">{item.roomCode}</span> ·{' '}
-                                {item.mode.toUpperCase()} ({item.playerCount} Siswa)
-                              </div>
-                              <div className="text-xs text-slate-400 truncate">{item.summaryText}</div>
+                {analytics && (
+                  <div>
+                    <div className="text-xs font-semibold text-amber-300 mb-2">
+                      Riwayat Sesi Terakhir ({analytics.databaseEngine})
+                    </div>
+                    <div className="space-y-2">
+                      {analytics.gameHistory.slice(0, 5).map((item) => (
+                        <div
+                          key={item.id}
+                          className="rpg-well p-3 flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-semibold text-white text-xs sm:text-sm">
+                              <span className="font-code text-amber-300">{item.roomCode}</span> ·{' '}
+                              {item.mode.toUpperCase()} ({item.playerCount} Siswa)
                             </div>
-                            <span className="font-code text-xs text-slate-400 shrink-0 tabular-nums">
-                              {item.durationSeconds}d
-                            </span>
+                            <div className="text-xs text-slate-400 truncate">{item.summaryText}</div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="text-xs font-semibold text-sky-300 mb-2">
-                        Akurasi Materi Matematika
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {analytics.categoryStats.map((cs) => {
-                          const catName =
-                            cs.category === 'custom'
-                              ? 'Soal Buatan Guru'
-                              : MATH_CATEGORIES.find((c) => c.id === cs.category)?.name ?? cs.category;
-                          const acc =
-                            cs.attempts > 0 ? Math.round((cs.correct / cs.attempts) * 100) : 0;
-                          return (
-                            <div
-                              key={cs.category}
-                              className="rpg-well p-2.5 flex items-center justify-between gap-2 text-xs"
-                            >
-                              <span className="text-slate-200 truncate">{catName}</span>
-                              <span className="font-code text-emerald-400 font-bold tabular-nums shrink-0">
-                                {acc}% ({cs.correct}/{cs.attempts})
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
+                          <span className="font-code text-xs text-slate-400 shrink-0 tabular-nums">
+                            {item.durationSeconds}d
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
-              </>
+              </div>
             )}
 
             {activeModal === 'credits' && (

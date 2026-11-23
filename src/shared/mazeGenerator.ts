@@ -17,6 +17,7 @@ export interface MazeKeyObject {
 
 export interface MazeRoomRegion {
   id: string;
+  name?: string;
   x: number;
   y: number;
   width: number;
@@ -121,9 +122,23 @@ export function validateMazeReachability(
   };
 }
 
+const SECRET_CHAMBER_CATALOG: {
+  name: string;
+  theme: MazeRoomRegion['theme'];
+}[] = [
+  { name: 'Ruang Harta Emas', theme: 'secret_treasury' },
+  { name: 'Sanctum Kristal Arkana', theme: 'crystal_sanctum' },
+  { name: 'Taman Lumut Kuno', theme: 'moss_courtyard' },
+  { name: 'Observatorium Aljabar', theme: 'crystal_sanctum' },
+  { name: 'Perpustakaan Geometri', theme: 'secret_treasury' },
+  { name: 'Kuil Logika Kuno', theme: 'moss_courtyard' },
+  { name: 'Bilik Mahkota Raja', theme: 'secret_treasury' },
+  { name: 'Aula Prisma Bintang', theme: 'crystal_sanctum' },
+];
+
 /**
  * Generates a procedural dungeon maze using Recursive Backtracking + Secret Room carving
- * + Braided intersection loops + BFS pathfinding guarantee.
+ * + Grand Spawn Courtyard + Central Crossroads Plaza + BFS pathfinding guarantee.
  */
 export function generateProceduralMaze(options: {
   level?: number;
@@ -186,34 +201,42 @@ export function generateProceduralMaze(options: {
     }
   }
 
-  // 3. Carve Spawn Plaza (5x5 open courtyard around spawn so classes have plenty of space)
+  // 3. Carve Royal Spawn Courtyard (5x5 open courtyard with royal carpet cross-runner)
   const spawnTile = { x: 3, y: 3 };
   for (let dy = -2; dy <= 2; dy++) {
     for (let dx = -2; dx <= 2; dx++) {
       const sx = spawnTile.x + dx;
       const sy = spawnTile.y + dy;
       if (sx >= 1 && sx < width - 1 && sy >= 1 && sy < height - 1) {
-        grid[sy][sx] = TileType.FLOOR;
+        const isCarpetRunner = dx === 0 || dy === 0;
+        const isCornerGarden = Math.abs(dx) === 2 && Math.abs(dy) === 2;
+        grid[sy][sx] = isCornerGarden
+          ? TileType.GRASS_DECOR
+          : isCarpetRunner
+          ? TileType.SECRET_FLOOR
+          : TileType.FLOOR;
       }
     }
   }
-  // Ensure clear rightward and downward corridors from spawn plaza
-  if (spawnTile.x + 3 < width - 1) grid[spawnTile.y][spawnTile.x + 3] = TileType.FLOOR;
-  if (spawnTile.y + 3 < height - 1) grid[spawnTile.y + 3][spawnTile.x] = TileType.FLOOR;
+  // Ensure clear rightward and downward archways from spawn courtyard
+  if (spawnTile.x + 3 < width - 1) grid[spawnTile.y][spawnTile.x + 3] = TileType.WOOD_DOOR;
+  if (spawnTile.y + 3 < height - 1) grid[spawnTile.y + 3][spawnTile.x] = TileType.WOOD_DOOR;
+  if (spawnTile.x + 4 < width - 1) grid[spawnTile.y][spawnTile.x + 4] = TileType.FLOOR;
+  if (spawnTile.y + 4 < height - 1) grid[spawnTile.y + 4][spawnTile.x] = TileType.FLOOR;
   grid[spawnTile.y][spawnTile.x] = TileType.PORTAL_SPAWN;
 
-  // 4. Carve Larger Enclosed Chambers (4x4 to 5x5 rooms framed by walls + doorways)
+  // 4. Carve Named Enclosed Secret Chambers (4x4 to 5x5 rooms framed by walls + doorways)
   const secretRooms: MazeRoomRegion[] = [];
   const roomWallSet = new Set<string>();
   const roomCount = Math.max(4, level + 3);
-  const themes: MazeRoomRegion['theme'][] = ['secret_treasury', 'crystal_sanctum', 'moss_courtyard'];
 
   for (let i = 0; i < roomCount; i++) {
     const rw = i % 2 === 0 ? 5 : 4;
     const rh = i % 2 === 0 ? 4 : 5;
     const rx = 7 + Math.floor(rng() * Math.max(1, width - rw - 10));
     const ry = 7 + Math.floor(rng() * Math.max(1, height - rh - 10));
-    const theme = themes[i % themes.length];
+    const catalogEntry = SECRET_CHAMBER_CATALOG[i % SECRET_CHAMBER_CATALOG.length];
+    const theme = catalogEntry.theme;
 
     // Frame room perimeter with solid walls so the room is genuinely enclosed until entered
     for (let y = ry - 1; y <= ry + rh; y++) {
@@ -230,13 +253,18 @@ export function generateProceduralMaze(options: {
       }
     }
 
-    // Place decorative feature inside the room center
+    // Place decorative centerpiece & corner accents inside the chamber
     const cx = rx + Math.floor(rw / 2);
     const cy = ry + Math.floor(rh / 2);
     if (cx > 1 && cx < width - 2 && cy > 1 && cy < height - 2) {
       if (theme === 'secret_treasury') grid[cy][cx] = TileType.CHEST_DECOR;
       else if (theme === 'crystal_sanctum') grid[cy][cx] = TileType.CRYSTAL_DECOR;
       else grid[cy][cx] = TileType.GRASS_DECOR;
+    }
+
+    // Subtle corner ornament inside larger chambers
+    if (rx > 1 && ry > 1 && rx + rw - 1 < width - 1 && ry + rh - 1 < height - 1) {
+      grid[ry][rx] = theme === 'moss_courtyard' ? TileType.GRASS_DECOR : TileType.TRAP_DECOR;
     }
 
     // Carve 1 primary doorway (WOOD_DOOR) and 1 side archway so room stays reachable yet enclosed
@@ -256,12 +284,33 @@ export function generateProceduralMaze(options: {
 
     secretRooms.push({
       id: `room-${i + 1}`,
+      name: catalogEntry.name,
       x: rx,
       y: ry,
       width: rw,
       height: rh,
       theme,
     });
+  }
+
+  // 4b. Carve Central Crossroads Rotunda (Compass Rose Landmark at map center if not overlapping secretRooms[0])
+  const midX = Math.floor(width / 2);
+  const midY = Math.floor(height / 2);
+  const overlapsFirstRoom =
+     secretRooms[0] &&
+    Math.abs(midX - (secretRooms[0].x + 2)) <= 4 &&
+    Math.abs(midY - (secretRooms[0].y + 2)) <= 4;
+
+  if (!overlapsFirstRoom && midX > 6 && midY > 6) {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const px = midX + dx;
+        const py = midY + dy;
+        if (!roomWallSet.has(`${px},${py}`)) {
+          grid[py][px] = dx === 0 && dy === 0 ? TileType.TRAP_DECOR : TileType.SECRET_FLOOR;
+        }
+      }
+    }
   }
 
   // 5. Add wider braided corridors & halls (preserving enclosed room perimeter walls)

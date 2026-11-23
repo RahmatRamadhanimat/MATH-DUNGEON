@@ -7,6 +7,7 @@ import {
   Direction,
   GameMode,
   MATH_CATEGORIES,
+  MazeBiomeId,
   PlayerAnimState,
   PlayerStatus,
   RoomSettings,
@@ -14,7 +15,17 @@ import {
   TeamId,
   normalizeRoomCode,
 } from './shared/constants';
+import { DEFAULT_MAZE_BIOME } from './shared/biomeThemes';
+import { extractRoomCodeFromSearch } from './shared/roomJoinLink';
 import { GeneratedMaze, generateProceduralMaze } from './shared/mazeGenerator';
+import { createVictoryLobbyMaze } from './shared/victoryLobbyMap';
+import { SpectatorCameraMode, cycleSpectatedStudentId } from './shared/spectatorCamera';
+import {
+  ActiveOverheadEmote,
+  EMOTE_DEFINITIONS,
+  EmoteId,
+  triggerPlayerEmote,
+} from './shared/emoteSystem';
 import { PublicMathQuestion } from './shared/questionGenerator';
 import { LeaderboardEntry, TeamLeaderboardEntry } from './shared/scoreSystem';
 import { ChatLogItem } from '../server';
@@ -25,6 +36,7 @@ import type {
 } from './server/questionSubmission';
 import { FxTriggerPayload, MazeCanvasView, RenderPlayerState } from './components/MazeCanvasView';
 import { GameplayHUD } from './components/GameplayHUD';
+import { ProjectorBigScreenView } from './components/ProjectorBigScreenView';
 import { QuestionFeedbackState, QuestionPopupModal } from './components/QuestionPopupModal';
 import { MultiplayerLobbyView } from './components/MultiplayerLobbyView';
 import { ResultVictoryModal } from './components/ResultVictoryModal';
@@ -77,20 +89,25 @@ export default function App() {
   const [outfitColor, setOutfitColor] = useState<string>(CHARACTER_PRESETS[0].primaryColor);
   const [selectedMode, setSelectedMode] = useState<GameMode>('coop');
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>('easy');
-  const [roomCodeInput, setRoomCodeInput] = useState<string>(() => {
+  const [selectedBiome, setSelectedBiome] = useState<MazeBiomeId>(DEFAULT_MAZE_BIOME);
+  const [invitedRoomCode] = useState<string | null>(() => {
     try {
-      const urlRoom = new URLSearchParams(window.location.search).get('room');
-      return urlRoom ? normalizeRoomCode(urlRoom) : 'MATH-4821';
+      return typeof window !== 'undefined'
+        ? extractRoomCodeFromSearch(window.location.search)
+        : null;
     } catch {
-      return 'MATH-4821';
+      return null;
     }
   });
+  const [roomCodeInput, setRoomCodeInput] = useState<string>(() => invitedRoomCode ?? 'MATH-4821');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [screenView, setScreenView] = useState<'title' | 'lobby' | 'playing' | 'gameover'>('title');
   const [localRole, setLocalRole] = useState<'teacher' | 'student'>('student');
   const [roomState, setRoomState] = useState<ServerRoomState | null>(null);
   const [endReason, setEndReason] = useState<string>('Seluruh kunci berhasil dikumpulkan!');
+  const [spectatorMode, setSpectatorMode] = useState<SpectatorCameraMode>('self');
+  const [spectatedPlayerId, setSpectatedPlayerId] = useState<string | null>(null);
 
   // Active Math Question Popup State
   const [activeQuestion, setActiveQuestion] = useState<PublicMathQuestion | null>(null);
@@ -102,12 +119,41 @@ export default function App() {
   const [muted, setMuted] = useState<boolean>(() => retroAudio.isMuted());
   const [volume, setVolume] = useState<number>(() => retroAudio.getVolume());
 
+  // Mini-map HUD toggle & expanded size state (persisted in localStorage)
+  const [showMinimap, setShowMinimap] = useState<boolean>(() => {
+    try {
+      const saved = window.localStorage.getItem('math_maze_show_minimap');
+      return saved === null ? true : saved !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const [minimapExpandedSize, setMinimapExpandedSize] = useState<boolean>(false);
+  const [projectorMode, setProjectorMode] = useState<boolean>(false);
+
+  const handleToggleMinimap = useCallback(() => {
+    setShowMinimap((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem('math_maze_show_minimap', next ? 'true' : 'false');
+      } catch {
+        // Ignore storage errors in restricted contexts
+      }
+      return next;
+    });
+  }, []);
+
+  const handleToggleMinimapSize = useCallback(() => {
+    setMinimapExpandedSize((prev) => !prev);
+  }, []);
+
   const socketRef = useRef<Socket | null>(null);
   const activeRoomCodeRef = useRef<string | null>(null);
   const leftRoomCodeRef = useRef<string | null>(null);
   const isJoiningOrCreatingRef = useRef<boolean>(false);
   const hasAutoStartedRef = useRef<boolean>(false);
   const hasConnectedOnceRef = useRef<boolean>(false);
+  const justEscapedDungeonRef = useRef<boolean>(false);
   const profileRef = useRef({
     playerId,
     playerName,
@@ -120,6 +166,7 @@ export default function App() {
   const deltaBufferRef = useRef<
     Map<string, { x: number; y: number; d: Direction; a: PlayerAnimState; s: PlayerStatus }>
   >(new Map());
+  const activeEmotesRef = useRef<Map<string, ActiveOverheadEmote>>(new Map());
   const fxTriggerRef = useRef<FxTriggerPayload>({ type: null });
   const roomStateRef = useRef<ServerRoomState | null>(null);
   roomStateRef.current = roomState;
@@ -362,7 +409,7 @@ export default function App() {
         setScreenView('playing');
       } else if (state.status === 'ended') {
         resetQuestionModal();
-        setScreenView('gameover');
+        setScreenView((prev) => (prev === 'playing' ? 'playing' : 'gameover'));
       } else if (state.status === 'lobby') {
         resetQuestionModal();
         setScreenView((prev) => (prev === 'title' ? 'lobby' : prev));
@@ -377,9 +424,13 @@ export default function App() {
       if (!activeRoomCodeRef.current && !isJoiningOrCreatingRef.current) {
         return;
       }
+      justEscapedDungeonRef.current = false;
       deltaBufferRef.current.clear();
+      activeEmotesRef.current.clear();
       appliedAnswerKeyRef.current = null;
       resetQuestionModal();
+      setSpectatorMode('self');
+      setSpectatedPlayerId(null);
       setRoomState(state);
       setScreenView('playing');
       retroAudio.startBgm('exploration');
@@ -458,6 +509,25 @@ export default function App() {
       );
     });
 
+    socket.on(
+      SOCKET_EVENTS.PLAYER_EMOTE,
+      (payload: {
+        id: string;
+        playerId: string;
+        playerName: string;
+        emoteId: EmoteId;
+        timestamp: number;
+      }) => {
+        if (!payload?.playerId || !payload?.emoteId) return;
+        triggerPlayerEmote(activeEmotesRef.current, {
+          playerId: payload.playerId,
+          playerName: payload.playerName || 'Pemain',
+          emoteId: payload.emoteId,
+          nowMs: performance.now(),
+        });
+      }
+    );
+
     socket.on(SOCKET_EVENTS.END_GAME, (payload: { reason: string; room: ServerRoomState }) => {
       const incomingCode = normalizeRoomCode(payload.room?.code || '');
       if (leftRoomCodeRef.current && incomingCode === leftRoomCodeRef.current) {
@@ -469,7 +539,13 @@ export default function App() {
       resetQuestionModal();
       setEndReason(payload.reason);
       setRoomState(payload.room);
-      setScreenView('gameover');
+      if (justEscapedDungeonRef.current) {
+        // Player just walked through the Dungeon Exit Door — transition directly into the Victory Sanctuary Lobby!
+        justEscapedDungeonRef.current = false;
+        setScreenView('playing');
+      } else {
+        setScreenView('gameover');
+      }
       retroAudio.playVictory();
     });
 
@@ -513,6 +589,7 @@ export default function App() {
           categories: cats,
           keyCount: 5,
           mapLevel: 1,
+          biome: selectedBiome,
         },
       },
       (res: { ok: boolean; roomCode?: string }) => {
@@ -539,7 +616,7 @@ export default function App() {
         }
       }
     );
-  }, [playerId, playerName, selectedMode, selectedDifficulty, characterId, outfitColor]);
+  }, [playerId, playerName, selectedMode, selectedDifficulty, selectedBiome, characterId, outfitColor]);
 
   // Support ?autostart=1 once on initial mount and Enter/Space on Title screen
   useEffect(() => {
@@ -563,16 +640,43 @@ export default function App() {
         e.preventDefault();
         handleStartQuickPlay();
       } else if (screenView === 'playing' && !activeQuestion) {
+        if ((e.key === 't' || e.key === 'T') && localRole === 'teacher') {
+          e.preventDefault();
+          retroAudio.playButtonClick();
+          setProjectorMode((prev) => !prev);
+          return;
+        }
+        // When Big Screen Projector Mode is active, let ProjectorBigScreenView own Esc & F shortcuts
+        if (projectorMode) return;
+
         if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
           e.preventDefault();
           handleTogglePause();
         } else if (e.key === 'm' || e.key === 'M') {
           e.preventDefault();
           handleToggleMute();
+        } else if (e.key === 'n' || e.key === 'N' || e.key === 'Tab') {
+          e.preventDefault();
+          retroAudio.playButtonClick();
+          handleToggleMinimap();
         } else if (e.key === 'e' || e.key === 'E') {
           e.preventDefault();
-          const doorOpen = isDoorOpenForLocalPlayer();
-          fxTriggerRef.current = { type: doorOpen ? 'teleportToExit' : 'teleportToKey' };
+          const inLobby = Boolean(
+            roomState && (localPlayerObj?.status === 'escaped' || roomState.status === 'ended')
+          );
+          if (inLobby) {
+            fxTriggerRef.current = { type: 'teleportToPodium' };
+          } else {
+            const doorOpen = isDoorOpenForLocalPlayer();
+            fxTriggerRef.current = { type: doorOpen ? 'teleportToExit' : 'teleportToKey' };
+          }
+        } else if (e.key >= '1' && e.key <= '6') {
+          const idx = Number(e.key) - 1;
+          const emoteDef = EMOTE_DEFINITIONS[idx];
+          if (emoteDef) {
+            e.preventDefault();
+            handleTriggerEmote(emoteDef.id);
+          }
         }
       }
     };
@@ -652,6 +756,7 @@ export default function App() {
           mode: selectedMode,
           difficulty: selectedDifficulty,
           categories: cats,
+          biome: selectedBiome,
         },
       },
       (res: { ok: boolean; roomCode?: string; state?: ServerRoomState; error?: string }) => {
@@ -674,6 +779,9 @@ export default function App() {
     isJoiningOrCreatingRef.current = false;
     activeRoomCodeRef.current = null;
     resetQuestionModal();
+    setSpectatorMode('self');
+    setSpectatedPlayerId(null);
+    setProjectorMode(false);
     setRoomState(null);
     setScreenView('title');
     if (socketRef.current && code) {
@@ -771,6 +879,14 @@ export default function App() {
 
   const handleReachExit = useCallback(() => {
     if (!socketRef.current || !roomState) return;
+    justEscapedDungeonRef.current = true;
+    fxTriggerRef.current = {
+      type: 'key',
+      x: 13.5 * 32,
+      y: 15.5 * 32,
+      bannerText: '★ LOBBY PEMENANG! ★',
+      subText: 'KELUAR DUNGEON BERHASIL',
+    };
     socketRef.current.emit(SOCKET_EVENTS.PLAYER_REACHED_EXIT, {
       roomCode: roomState.code,
       playerId,
@@ -778,6 +894,55 @@ export default function App() {
   }, [roomState, playerId]);
 
   const localPlayerObj = roomState?.players.find((p) => p.id === playerId);
+  const spectatedPlayerName =
+    roomState?.players.find((p) => p.id === spectatedPlayerId)?.name ??
+    roomState?.leaderboard.find((e) => e.playerId === spectatedPlayerId)?.name ??
+    null;
+
+  const handleSelectSpectatePlayer = useCallback((targetPlayerId: string) => {
+    setSpectatedPlayerId(targetPlayerId);
+    setSpectatorMode('follow_student');
+  }, []);
+
+  const handleCycleSpectatePlayer = useCallback(
+    (delta: 1 | -1) => {
+      if (!roomState) return;
+      const ids = roomState.leaderboard.map((e) => e.playerId);
+      const nextId = cycleSpectatedStudentId(ids, spectatedPlayerId, delta);
+      if (nextId) {
+        setSpectatedPlayerId(nextId);
+        setSpectatorMode('follow_student');
+      }
+    },
+    [roomState, spectatedPlayerId]
+  );
+
+  const handleTriggerEmote = useCallback(
+    (emoteId: EmoteId) => {
+      const myName = localPlayerObj?.name ?? playerName;
+      triggerPlayerEmote(activeEmotesRef.current, {
+        playerId,
+        playerName: myName,
+        emoteId,
+        nowMs: performance.now(),
+      });
+      if (emoteId === 'fireworks') {
+        fxTriggerRef.current = {
+          type: 'key',
+          bannerText: '★ KEMBANG API! ★',
+          subText: myName,
+        };
+      }
+      if (socketRef.current && roomState) {
+        socketRef.current.emit(SOCKET_EVENTS.PLAYER_EMOTE, {
+          roomCode: roomState.code,
+          playerId,
+          emoteId,
+        });
+      }
+    },
+    [localPlayerObj?.name, playerId, playerName, roomState]
+  );
 
   const isDoorOpenForLocalPlayer = (): boolean => {
     if (!roomState) return false;
@@ -794,6 +959,10 @@ export default function App() {
   // Fallback maze if needed before first room state arrives
   const activeMaze =
     roomState?.maze ?? generateProceduralMaze({ level: 1, keyCount: 5, seed: 4821 });
+  const isInVictoryLobby = Boolean(
+    roomState && (localPlayerObj?.status === 'escaped' || roomState.status === 'ended')
+  );
+  const displayedMaze = isInVictoryLobby ? createVictoryLobbyMaze() : activeMaze;
 
   return (
     <div className="min-h-[100dvh] w-full bg-[#090D15] text-slate-100">
@@ -804,7 +973,9 @@ export default function App() {
           outfitColor={outfitColor}
           selectedMode={selectedMode}
           selectedDifficulty={selectedDifficulty}
+          selectedBiome={selectedBiome}
           roomCodeInput={roomCodeInput}
+          invitedRoomCode={invitedRoomCode}
           errorMessage={errorMessage}
           muted={muted}
           volume={volume}
@@ -816,6 +987,7 @@ export default function App() {
           onChangeOutfitColor={setOutfitColor}
           onChangeMode={setSelectedMode}
           onChangeDifficulty={setSelectedDifficulty}
+          onChangeBiome={setSelectedBiome}
           onChangeRoomCodeInput={setRoomCodeInput}
           onStartQuickPlay={handleStartQuickPlay}
           onJoinRoomAsStudent={handleJoinRoomAsStudent}
@@ -826,69 +998,138 @@ export default function App() {
       )}
 
       {screenView === 'lobby' && roomState && (
-        <MultiplayerLobbyView
-          roomCode={roomState.code}
-          teacherName={roomState.teacherName}
-          locked={roomState.locked}
-          settings={roomState.settings}
-          customQuestionCount={roomState.customQuestionCount}
-          players={roomState.players}
-          localPlayerId={playerId}
-          localRole={localRole}
-          localReady={localPlayerObj?.ready ?? true}
-          onToggleReady={() =>
-            socketRef.current?.emit(SOCKET_EVENTS.TOGGLE_READY, {
-              roomCode: roomState.code,
-              playerId,
-            })
-          }
-          onUpdateSettings={(partial) =>
-            socketRef.current?.emit(SOCKET_EVENTS.UPDATE_SETTINGS, {
-              roomCode: roomState.code,
-              settings: partial,
-            })
-          }
-          onToggleLockRoom={() =>
-            socketRef.current?.emit(SOCKET_EVENTS.LOCK_ROOM, {
-              roomCode: roomState.code,
-            })
-          }
-          onAssignTeams={(mode, manualMap) =>
-            socketRef.current?.emit(SOCKET_EVENTS.ASSIGN_TEAMS, {
-              roomCode: roomState.code,
-              mode,
-              manualMap,
-            })
-          }
-          onStartGame={() => {
-            // If Teacher starts game and there are no students yet, join teacher as an explorer too so teacher can test or observe
-            if (roomState.players.filter((p) => p.role === 'student').length === 0) {
-              socketRef.current?.emit(
-                SOCKET_EVENTS.JOIN_ROOM,
-                {
-                  roomCode: roomState.code,
-                  playerId,
-                  name: playerName || 'Guru Petualang',
-                  role: 'student',
-                  characterId,
-                  outfitColor,
-                },
-                () => {
-                  socketRef.current?.emit(SOCKET_EVENTS.START_GAME, { roomCode: roomState.code });
-                }
-              );
-            } else {
-              socketRef.current?.emit(SOCKET_EVENTS.START_GAME, { roomCode: roomState.code });
+        projectorMode && localRole === 'teacher' ? (
+          <ProjectorBigScreenView
+            roomCode={roomState.code}
+            roomStatus="lobby"
+            teacherName={roomState.teacherName}
+            level={roomState.settings.mapLevel}
+            mode={roomState.settings.mode}
+            biome={roomState.settings.biome}
+            maze={displayedMaze}
+            players={roomState.players}
+            leaderboard={roomState.leaderboard}
+            teamLeaderboard={roomState.teamLeaderboard}
+            sharedKeysCollected={roomState.sharedKeysCollected}
+            teamKeysCollected={roomState.teamKeysCollected}
+            targetKeys={roomState.settings.keyCount}
+            remainingSeconds={roomState.remainingSeconds}
+            maxPlayers={roomState.settings.maxPlayers}
+            chatHistory={roomState.chatHistory}
+            deltaBufferRef={deltaBufferRef}
+            activeEmotesRef={activeEmotesRef}
+            onExitProjectorMode={() => setProjectorMode(false)}
+            onStartGameFromLobby={() => {
+              if (roomState.players.filter((p) => p.role === 'student').length === 0) {
+                socketRef.current?.emit(
+                  SOCKET_EVENTS.JOIN_ROOM,
+                  {
+                    roomCode: roomState.code,
+                    playerId,
+                    name: playerName || 'Guru Petualang',
+                    role: 'student',
+                    characterId,
+                    outfitColor,
+                  },
+                  () => {
+                    socketRef.current?.emit(SOCKET_EVENTS.START_GAME, { roomCode: roomState.code });
+                  }
+                );
+              } else {
+                socketRef.current?.emit(SOCKET_EVENTS.START_GAME, { roomCode: roomState.code });
+              }
+            }}
+          />
+        ) : (
+          <MultiplayerLobbyView
+            roomCode={roomState.code}
+            teacherName={roomState.teacherName}
+            locked={roomState.locked}
+            settings={roomState.settings}
+            customQuestionCount={roomState.customQuestionCount}
+            players={roomState.players}
+            leaderboard={roomState.leaderboard}
+            localPlayerId={playerId}
+            localRole={localRole}
+            localReady={localPlayerObj?.ready ?? true}
+            onToggleReady={() =>
+              socketRef.current?.emit(SOCKET_EVENTS.TOGGLE_READY, {
+                roomCode: roomState.code,
+                playerId,
+              })
             }
-          }}
-          onLeaveLobby={handleLeaveCurrentRoom}
-        />
+            onUpdateSettings={(partial) =>
+              socketRef.current?.emit(SOCKET_EVENTS.UPDATE_SETTINGS, {
+                roomCode: roomState.code,
+                settings: partial,
+              })
+            }
+            onToggleLockRoom={() =>
+              socketRef.current?.emit(SOCKET_EVENTS.LOCK_ROOM, {
+                roomCode: roomState.code,
+              })
+            }
+            onAssignTeams={(mode, manualMap) =>
+              socketRef.current?.emit(SOCKET_EVENTS.ASSIGN_TEAMS, {
+                roomCode: roomState.code,
+                mode,
+                manualMap,
+              })
+            }
+            onStartGame={() => {
+              // If Teacher starts game and there are no students yet, join teacher as an explorer too so teacher can test or observe
+              if (roomState.players.filter((p) => p.role === 'student').length === 0) {
+                socketRef.current?.emit(
+                  SOCKET_EVENTS.JOIN_ROOM,
+                  {
+                    roomCode: roomState.code,
+                    playerId,
+                    name: playerName || 'Guru Petualang',
+                    role: 'student',
+                    characterId,
+                    outfitColor,
+                  },
+                  () => {
+                    socketRef.current?.emit(SOCKET_EVENTS.START_GAME, { roomCode: roomState.code });
+                  }
+                );
+              } else {
+                socketRef.current?.emit(SOCKET_EVENTS.START_GAME, { roomCode: roomState.code });
+              }
+            }}
+            onOpenProjectorMode={() => setProjectorMode(true)}
+            onLeaveLobby={handleLeaveCurrentRoom}
+          />
+        )
       )}
 
       {screenView === 'playing' && roomState && (
+        projectorMode && localRole === 'teacher' ? (
+          <ProjectorBigScreenView
+            roomCode={roomState.code}
+            roomStatus={roomState.status}
+            teacherName={roomState.teacherName}
+            level={roomState.settings.mapLevel}
+            mode={roomState.settings.mode}
+            biome={roomState.settings.biome}
+            maze={displayedMaze}
+            players={roomState.players}
+            leaderboard={roomState.leaderboard}
+            teamLeaderboard={roomState.teamLeaderboard}
+            sharedKeysCollected={roomState.sharedKeysCollected}
+            teamKeysCollected={roomState.teamKeysCollected}
+            targetKeys={roomState.settings.keyCount}
+            remainingSeconds={roomState.remainingSeconds}
+            maxPlayers={roomState.settings.maxPlayers}
+            chatHistory={roomState.chatHistory}
+            deltaBufferRef={deltaBufferRef}
+            activeEmotesRef={activeEmotesRef}
+            onExitProjectorMode={() => setProjectorMode(false)}
+          />
+        ) : (
         <div className="fixed inset-0 w-full h-[100dvh] overflow-hidden">
           <MazeCanvasView
-            maze={activeMaze}
+            maze={displayedMaze}
             localPlayerId={playerId}
             localCharacterId={localPlayerObj?.characterId ?? characterId}
             localOutfitColor={localPlayerObj?.outfitColor ?? outfitColor}
@@ -896,21 +1137,35 @@ export default function App() {
             localTeamId={localPlayerObj?.teamId ?? null}
             localStatus={localPlayerObj?.status ?? 'active'}
             gameMode={roomState.settings.mode}
+            biome={roomState.settings.biome}
             isPaused={roomState.status === 'paused'}
             isQuestionOpen={Boolean(activeQuestion)}
             isDoorOpenForMe={isDoorOpenForLocalPlayer()}
             players={roomState.players}
+            leaderboard={roomState.leaderboard}
+            spectatorMode={spectatorMode}
+            spectatedPlayerId={spectatedPlayerId}
+            onSelectSpectatePlayer={handleSelectSpectatePlayer}
+            onChangeSpectatorMode={setSpectatorMode}
+            activeEmotesRef={activeEmotesRef}
             deltaBufferRef={deltaBufferRef}
             fxTriggerRef={fxTriggerRef}
             onMoveSync={handleMoveSync}
             onTouchKey={handleTouchKey}
             onReachExit={handleReachExit}
+            onOpenVictoryResults={() => setScreenView('gameover')}
+            showMinimap={showMinimap}
+            minimapExpandedSize={minimapExpandedSize}
+            onToggleMinimap={handleToggleMinimap}
+            onToggleMinimapSize={handleToggleMinimapSize}
           />
 
           <GameplayHUD
             roomCode={roomState.code}
             level={roomState.settings.mapLevel}
             mode={roomState.settings.mode}
+            biome={roomState.settings.biome}
+            localPlayerId={playerId}
             playerName={localPlayerObj?.name ?? playerName}
             playerRole={localRole}
             teamId={localPlayerObj?.teamId ?? null}
@@ -925,11 +1180,21 @@ export default function App() {
             remainingSeconds={roomState.remainingSeconds}
             playerStatus={localPlayerObj?.status ?? 'active'}
             isPaused={roomState.status === 'paused'}
+            isVictoryLobby={isInVictoryLobby}
             muted={muted}
+            showMinimap={showMinimap}
+            minimapExpandedSize={minimapExpandedSize}
             leaderboard={roomState.leaderboard}
             teamLeaderboard={roomState.teamLeaderboard}
             chatHistory={roomState.chatHistory}
+            spectatorMode={spectatorMode}
+            spectatedPlayerId={spectatedPlayerId}
+            spectatedPlayerName={spectatedPlayerName}
+            onSelectSpectatePlayer={handleSelectSpectatePlayer}
+            onChangeSpectatorMode={setSpectatorMode}
+            onCycleSpectatePlayer={handleCycleSpectatePlayer}
             onToggleMute={handleToggleMute}
+            onToggleMinimap={handleToggleMinimap}
             onTogglePause={handleTogglePause}
             onSendChat={(text, type) =>
               socketRef.current?.emit(SOCKET_EVENTS.CHAT_MESSAGE, {
@@ -939,6 +1204,7 @@ export default function App() {
                 type,
               })
             }
+            onTriggerEmote={handleTriggerEmote}
             onTeacherEndGame={() =>
               socketRef.current?.emit(SOCKET_EVENTS.END_GAME, {
                 roomCode: roomState.code,
@@ -950,7 +1216,9 @@ export default function App() {
                 roomCode: roomState.code,
               })
             }
+            onOpenProjectorMode={() => setProjectorMode(true)}
             onLeaveRoom={handleLeaveCurrentRoom}
+            onOpenVictoryResults={() => setScreenView('gameover')}
           />
 
           {activeQuestion && (
@@ -966,6 +1234,7 @@ export default function App() {
             />
           )}
         </div>
+        )
       )}
 
       {screenView === 'gameover' && roomState && (
@@ -977,6 +1246,9 @@ export default function App() {
           localRole={localRole}
           leaderboard={roomState.leaderboard}
           teamLeaderboard={roomState.teamLeaderboard}
+          onExploreVictoryLobby={() => {
+            setScreenView('playing');
+          }}
           onPlayAgain={() => {
             socketRef.current?.emit(SOCKET_EVENTS.RESTART_GAME, {
               roomCode: roomState.code,

@@ -123,7 +123,7 @@ export function resolveSubmittedAnswer(params: {
     };
   }
 
-  const { keyId, question } = player.activeQuestion;
+  const { keyId, question, issuedAt } = player.activeQuestion;
 
   if (payload.questionId && question.id !== payload.questionId) {
     const saved = player.lastAnsweredResult;
@@ -166,7 +166,8 @@ export function resolveSubmittedAnswer(params: {
   }
 
   const isCorrect = payload.selectedOption === question.correctOption;
-  database.recordQuestionAttempt(question.category, isCorrect);
+  const answerMs = Math.max(180, Date.now() - (issuedAt || Date.now() - 1800));
+  database.recordQuestionAttempt(question.category, isCorrect, answerMs);
 
   const systemChats: string[] = [];
   let keyCollectedBroadcast: KeyCollectedBroadcastPayload | undefined;
@@ -190,6 +191,10 @@ export function resolveSubmittedAnswer(params: {
     }
 
     if (!alreadyClaimed) {
+      player.fastestAnswerMs =
+        player.fastestAnswerMs && player.fastestAnswerMs > 0
+          ? Math.min(player.fastestAnswerMs, answerMs)
+          : answerMs;
       player.correctAnswers += 1;
       player.keysCollected += 1;
       player.animState = 'key_get';

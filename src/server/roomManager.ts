@@ -12,6 +12,7 @@ import {
   TileType,
   normalizeRoomCode,
 } from '../shared/constants';
+import { normalizeMazeBiome } from '../shared/biomeThemes';
 import { GeneratedMaze, generateProceduralMaze, isWalkableTile } from '../shared/mazeGenerator';
 import { MathQuestion, sanitizeCustomQuestions } from '../shared/questionGenerator';
 import {
@@ -44,6 +45,9 @@ export interface ServerPlayer {
   wrongAnswers: number;
   status: PlayerStatus;
   completionTimeSeconds: number | null;
+  fastestAnswerMs?: number | null;
+  tilesExploredCount?: number;
+  visitedTiles?: Set<number>;
   lastMoveAt: number;
   lastChatAt: number;
   activeQuestion: {
@@ -124,6 +128,7 @@ export function sanitizeRoomSettings(
     ),
     keyCount: Math.max(1, Math.min(20, Number(merged.keyCount ?? GAME_RULES.DEFAULT_KEYS))),
     mapLevel: Math.max(1, Math.min(5, Number(merged.mapLevel ?? 1))),
+    biome: normalizeMazeBiome(merged.biome),
     lives: Math.max(1, Math.min(10, Number(merged.lives ?? GAME_RULES.DEFAULT_LIVES))),
     durationSeconds: Math.max(60, Math.min(1800, Number(merged.durationSeconds ?? 300))),
     questionTimerSeconds: Math.max(
@@ -720,6 +725,11 @@ export class RoomManager {
       p.wrongAnswers = 0;
       p.status = 'active';
       p.completionTimeSeconds = null;
+      p.fastestAnswerMs = null;
+      p.tilesExploredCount = 12;
+      p.visitedTiles = new Set<number>([
+        room.maze.spawnTile.y * room.maze.width + room.maze.spawnTile.x,
+      ]);
       p.activeQuestion = null;
       p.lastAnsweredResult = null;
       if (room.settings.mode === 'team' && p.role === 'student' && !p.teamId) {
@@ -753,6 +763,8 @@ export class RoomManager {
         lives: p.lives,
         status: p.status,
         completionTimeSeconds: p.completionTimeSeconds,
+        fastestAnswerMs: p.fastestAnswerMs ?? null,
+        tilesExploredCount: Math.max(12, p.tilesExploredCount ?? 12),
       }))
     );
 

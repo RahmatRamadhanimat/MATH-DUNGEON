@@ -173,5 +173,17 @@ export function buildCustomQuestionsCsvTemplate(): string {
     '"Berapakah hasil dari 25 x 4?",100,80,A,"25 x 4 = 100"',
     '"Sebuah persegi memiliki sisi 9 cm. Berapakah luasnya?",36 cm2,81 cm2,B,"Luas = 9 x 9 = 81 cm2"',
     '"Hasil dari 144 : 12 adalah...",12,14,A,"144 : 12 = 12"',
+    '"Berapakah hasil dari 45 + 15 x 4 - 20?",85,220,A,"Perkalian dahulu: 15 x 4 = 60, lalu 45 + 60 - 20 = 85"',
+    '"Sederhanakan pecahan 2/3 + 3/4!",17/12,5/7,A,"Samakan penyebut menjadi 12: 8/12 + 9/12 = 17/12"',
+    '"Tas seharga Rp200.000 diskon 25%. Berapa harga setelah diskon?",Rp150.000,Rp175.000,A,"Diskon 25% = Rp50.000, harga bayar = Rp150.000"',
+    '"Suhu kulkas awalnya -6 C lalu naik 14 C. Berapa suhu sekarang?",-20 C,8 C,B,"-6 + 14 = 8 C"',
+    '"Berapakah hasil dari 9^2 - akar(144)?",69,6,A,"81 - 12 = 69"',
+    '"Tentukan nilai x dari persamaan 5x - 9 = 2x + 12!",x = 7,x = 3,A,"3x = 21 maka x = 7"',
+    '"Segitiga siku-siku memiliki alas 6 cm dan tinggi 8 cm. Berapa sisi miringnya?",10 cm,14 cm,A,"c = akar(36 + 64) = 10 cm"',
+    '"Keliling lingkaran dengan jari-jari 7 m (pi = 22/7) adalah...",44 m,154 m,A,"Keliling = 2 x 22/7 x 7 = 44 m"',
+    '"Sebuah kubus memiliki rusuk 5 cm. Berapakah volumenya?",125 cm3,150 cm3,A,"Volume = 5 x 5 x 5 = 125 cm3"',
+    '"Lanjutkan pola bilangan Fibonacci: 2, 3, 5, 8, 13, 21, ...",34,32,A,"13 + 21 = 34"',
+    '"Berapakah jumlah 10 bilangan asli pertama (1 + 2 + ... + 10)?",55,50,A,"10 x 11 / 2 = 55"',
+    '"Jika 3 pekerja selesai dalam 8 hari, berapa hari untuk 6 pekerja?",4 hari,16 hari,A,"(3 x 8) : 6 = 4 hari"',
   ].join('\n');
 }

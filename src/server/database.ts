@@ -96,6 +96,7 @@ export interface CategoryLearningStat {
   attempts: number;
   correct: number;
   wrong: number;
+  totalResponseMs?: number;
 }
 
 export interface DatabaseSchema {
@@ -179,6 +180,9 @@ const INITIAL_DB: DatabaseSchema = {
           lives: 3,
           status: 'escaped',
           completionTimeSeconds: 185,
+          fastestAnswerMs: 1650,
+          tilesExploredCount: 142,
+          mvpBadges: [],
         },
         {
           rank: 2,
@@ -195,6 +199,9 @@ const INITIAL_DB: DatabaseSchema = {
           lives: 2,
           status: 'escaped',
           completionTimeSeconds: 204,
+          fastestAnswerMs: 2400,
+          tilesExploredCount: 168,
+          mvpBadges: [],
         },
       ],
       teamLeaderboard: [
@@ -226,10 +233,55 @@ const INITIAL_DB: DatabaseSchema = {
     },
   ],
   categoryStats: {
-    multiplication: { category: 'multiplication', attempts: 42, correct: 38, wrong: 4 },
-    fractions: { category: 'fractions', attempts: 31, correct: 25, wrong: 6 },
-    algebra: { category: 'algebra', attempts: 24, correct: 19, wrong: 5 },
-    linear_equations: { category: 'linear_equations', attempts: 18, correct: 15, wrong: 3 },
+    multiplication: {
+      category: 'multiplication',
+      attempts: 42,
+      correct: 38,
+      wrong: 4,
+      totalResponseMs: 42 * 3400,
+    },
+    fractions: {
+      category: 'fractions',
+      attempts: 31,
+      correct: 23,
+      wrong: 8,
+      totalResponseMs: 31 * 5900,
+    },
+    algebra: {
+      category: 'algebra',
+      attempts: 24,
+      correct: 17,
+      wrong: 7,
+      totalResponseMs: 24 * 6800,
+    },
+    linear_equations: {
+      category: 'linear_equations',
+      attempts: 18,
+      correct: 13,
+      wrong: 5,
+      totalResponseMs: 18 * 7400,
+    },
+    percentages: {
+      category: 'percentages',
+      attempts: 22,
+      correct: 17,
+      wrong: 5,
+      totalResponseMs: 22 * 5300,
+    },
+    division: {
+      category: 'division',
+      attempts: 28,
+      correct: 23,
+      wrong: 5,
+      totalResponseMs: 28 * 4200,
+    },
+    mixed_ops: {
+      category: 'mixed_ops',
+      attempts: 20,
+      correct: 16,
+      wrong: 4,
+      totalResponseMs: 20 * 5100,
+    },
   },
   activeRooms: {},
 };
@@ -253,10 +305,29 @@ export class GameDatabase {
       if (fs.existsSync(this.dbFile)) {
         const raw = fs.readFileSync(this.dbFile, 'utf-8');
         const parsed = JSON.parse(raw) as DatabaseSchema;
+        const mergedCategoryStats: Record<string, CategoryLearningStat> = structuredClone(
+          INITIAL_DB.categoryStats
+        );
+        for (const [key, stat] of Object.entries(parsed.categoryStats ?? {})) {
+          const base = mergedCategoryStats[key];
+          if (base && stat.attempts < base.attempts) {
+            mergedCategoryStats[key] = {
+              category: stat.category,
+              attempts: base.attempts + stat.attempts,
+              correct: base.correct + stat.correct,
+              wrong: base.wrong + stat.wrong,
+              totalResponseMs:
+                (base.totalResponseMs ?? base.attempts * 4500) +
+                (stat.totalResponseMs ?? stat.attempts * 4500),
+            };
+          } else {
+            mergedCategoryStats[key] = stat;
+          }
+        }
         return {
           users: parsed.users ?? structuredClone(INITIAL_DB.users),
           gameHistory: parsed.gameHistory ?? structuredClone(INITIAL_DB.gameHistory),
-          categoryStats: parsed.categoryStats ?? structuredClone(INITIAL_DB.categoryStats),
+          categoryStats: mergedCategoryStats,
           activeRooms: parsed.activeRooms ?? {},
         };
       }
@@ -307,16 +378,26 @@ export class GameDatabase {
     return updated;
   }
 
-  public recordQuestionAttempt(category: MathCategoryId | 'custom', isCorrect: boolean): void {
+  public recordQuestionAttempt(
+    category: MathCategoryId | 'custom',
+    isCorrect: boolean,
+    responseMs?: number
+  ): void {
     const stat = this.data.categoryStats[category] ?? {
       category,
       attempts: 0,
       correct: 0,
       wrong: 0,
+      totalResponseMs: 0,
     };
     stat.attempts += 1;
     if (isCorrect) stat.correct += 1;
     else stat.wrong += 1;
+    const clampedMs =
+      typeof responseMs === 'number' && Number.isFinite(responseMs) && responseMs > 0
+        ? Math.min(60000, Math.max(180, Math.round(responseMs)))
+        : 4200;
+    stat.totalResponseMs = (stat.totalResponseMs ?? 0) + clampedMs;
     this.data.categoryStats[category] = stat;
     this.saveToDisk();
   }

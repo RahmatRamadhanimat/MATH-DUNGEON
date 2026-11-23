@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { GameDatabase } from './database';
-import { RoomManager } from './roomManager';
+import { RoomManager, sanitizeRoomSettings } from './roomManager';
 
 function createTempDbPath(): { dir: string; file: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'math-maze-test-'));
@@ -385,5 +385,40 @@ test('RoomManager.leaveRoom clears teacherSocketId and player.socketId so ended 
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   }
 });
+
+test('RoomManager persists, updates, and normalizes room biome themes across restarts', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db1 = new GameDatabase(tmp.file);
+    const mgr1 = new RoomManager(db1);
+
+    const room = mgr1.createRoom({
+      teacherId: 'teacher-biome',
+      teacherName: 'Bu Dina',
+      socketId: 'sock-b1',
+      settings: { biome: 'crystal_forest' },
+    });
+    assert.equal(room.settings.biome, 'crystal_forest');
+
+    // Update biome in lobby to Kuil Gurun Pasir (same path as UPDATE_SETTINGS socket handler)
+    room.settings = sanitizeRoomSettings(room.settings, { biome: 'desert_temple' });
+    mgr1.persistRoom(room);
+    assert.equal(room.settings.biome, 'desert_temple');
+
+    // Reload from disk and confirm biome persisted
+    const db2 = new GameDatabase(tmp.file);
+    const mgr2 = new RoomManager(db2);
+    const restored = mgr2.resolveRoom(room.code);
+    assert.ok(restored);
+    assert.equal(restored.settings.biome, 'desert_temple');
+
+    // Invalid biome safely falls back to stone_dungeon
+    const fallback = sanitizeRoomSettings(restored.settings, { biome: 'lava_invalid' as never });
+    assert.equal(fallback.biome, 'stone_dungeon');
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
 
 

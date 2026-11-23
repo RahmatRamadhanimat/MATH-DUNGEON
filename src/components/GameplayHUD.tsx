@@ -1,11 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  BarChart3,
   Bell,
+  Camera,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Download,
+  Eye,
   Flag,
   LogOut,
+  Map as MapIcon,
   MessageSquare,
   Pause,
   Play,
@@ -13,19 +19,25 @@ import {
   Send,
   Sparkles,
   Trophy,
+  Tv,
+  UserCheck,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
 import {
-  EMOJI_REACTIONS,
   GameMode,
+  MazeBiomeId,
   PlayerStatus,
   QUICK_CHAT_MESSAGES,
   TEAM_DEFINITIONS,
   TeamId,
 } from '../shared/constants';
+import { DEFAULT_MAZE_BIOME, getMazeBiomeTheme } from '../shared/biomeThemes';
 import { LeaderboardEntry, TeamLeaderboardEntry } from '../shared/scoreSystem';
+import { SpectatorCameraMode } from '../shared/spectatorCamera';
+import { EMOTE_DEFINITIONS, EmoteId } from '../shared/emoteSystem';
+import { StudentAnalyticsPanel } from './StudentAnalyticsPanel';
 import { ChatLogItem } from '../../server';
 import { getCharacterAvatarDataUrl } from '../game/assets/PixelArtSprites';
 import { retroAudio } from '../game/audio/RetroAudio';
@@ -34,6 +46,8 @@ interface GameplayHUDProps {
   roomCode: string;
   level: number;
   mode: GameMode;
+  biome?: MazeBiomeId;
+  localPlayerId?: string;
   playerName: string;
   playerRole: 'teacher' | 'student';
   teamId: TeamId | null;
@@ -48,16 +62,29 @@ interface GameplayHUDProps {
   remainingSeconds: number;
   playerStatus: PlayerStatus;
   isPaused: boolean;
+  isVictoryLobby?: boolean;
+  showMinimap?: boolean;
+  minimapExpandedSize?: boolean;
   muted: boolean;
   leaderboard: LeaderboardEntry[];
   teamLeaderboard: TeamLeaderboardEntry[];
   chatHistory: ChatLogItem[];
+  spectatorMode?: SpectatorCameraMode;
+  spectatedPlayerId?: string | null;
+  spectatedPlayerName?: string | null;
+  onSelectSpectatePlayer?: (playerId: string) => void;
+  onChangeSpectatorMode?: (mode: SpectatorCameraMode) => void;
+  onCycleSpectatePlayer?: (delta: 1 | -1) => void;
+  onToggleMinimap?: () => void;
   onToggleMute: () => void;
   onTogglePause: () => void;
   onSendChat: (text: string, type: 'chat' | 'emoji') => void;
+  onTriggerEmote?: (emoteId: EmoteId) => void;
   onTeacherEndGame: () => void;
   onTeacherRestartGame: () => void;
+  onOpenProjectorMode?: () => void;
   onLeaveRoom: () => void;
+  onOpenVictoryResults?: () => void;
 }
 
 function formatTimer(seconds: number): string {
@@ -71,6 +98,7 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
   roomCode,
   level,
   mode,
+  biome = DEFAULT_MAZE_BIOME,
   playerName,
   playerRole,
   teamId,
@@ -85,19 +113,33 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
   remainingSeconds,
   playerStatus,
   isPaused,
+  isVictoryLobby = false,
+  showMinimap = true,
+  minimapExpandedSize = false,
   muted,
   leaderboard,
   teamLeaderboard,
   chatHistory,
+  spectatorMode = 'self',
+  spectatedPlayerId = null,
+  spectatedPlayerName = null,
+  onSelectSpectatePlayer,
+  onChangeSpectatorMode,
+  onCycleSpectatePlayer,
+  onToggleMinimap,
   onToggleMute,
   onTogglePause,
   onSendChat,
+  onTriggerEmote,
   onTeacherEndGame,
   onTeacherRestartGame,
+  onOpenProjectorMode,
   onLeaveRoom,
+  onOpenVictoryResults,
 }) => {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
   const [liveFeedExpanded, setLiveFeedExpanded] = useState(true);
   const [customChat, setCustomChat] = useState('');
   const [seenChatCount, setSeenChatCount] = useState(chatHistory.length);
@@ -136,6 +178,12 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
     onSendChat(customChat.trim(), 'chat');
     setCustomChat('');
   };
+
+  const minimapClearanceClass = !showMinimap
+    ? ''
+    : minimapExpandedSize
+    ? 'sm:mr-[280px]'
+    : 'sm:mr-[220px]';
 
   return (
     <div className="fixed inset-0 z-30 pointer-events-none">
@@ -257,14 +305,74 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
           </div>
         </div>
 
-        {/* Status Banner when Door Opens or Spectator Mode (Desktop/Tablet) */}
-        {doorOpenForMe && playerStatus === 'active' && (
-          <div className="hidden sm:flex items-center gap-2 rounded-md bg-emerald-950/95 border border-emerald-400/90 px-3 py-1.5 text-xs font-semibold text-emerald-100 shadow-lg">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-300 shrink-0" aria-hidden="true" />
-            <span>Pintu Keluar Terbuka — capai gerbang hijau di labirin untuk menang!</span>
+        {/* Status Banner when Door Opens, Victory Sanctuary Lobby, or Spectator Mode (Desktop/Tablet) */}
+        {isVictoryLobby ? (
+          <div
+            data-testid="victory-lobby-banner"
+            className="pointer-events-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-md bg-amber-950/90 border border-amber-400/80 px-3 py-2 text-xs text-amber-100 shadow-lg"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Trophy className="w-4 h-4 text-amber-300 shrink-0" aria-hidden="true" />
+              <div className="min-w-0">
+                <div className="font-bold text-amber-300 tracking-wide">
+                  AULA PEMENANG · LOBBY KELUAR DUNGEON
+                </div>
+                <div className="text-[11px] text-amber-100/90">
+                  Anda telah keluar dari dungeon! Bebas berkeliling bersama pemain lain.
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              {onOpenVictoryResults && (
+                <button
+                  type="button"
+                  data-testid="open-victory-results-btn"
+                  onClick={() => {
+                    retroAudio.playButtonClick();
+                    onOpenVictoryResults();
+                  }}
+                  className="px-2.5 py-1 rounded bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[11px] flex items-center gap-1 transition-colors whitespace-nowrap"
+                >
+                  <Trophy className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  <span>Tabel Hasil Akhir</span>
+                </button>
+              )}
+              <button
+                type="button"
+                data-testid="victory-lobby-play-again-btn"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  onTeacherRestartGame();
+                }}
+                className="px-2.5 py-1 rounded bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/60 text-emerald-100 font-semibold text-[11px] flex items-center gap-1 transition-colors whitespace-nowrap"
+              >
+                <RotateCcw className="w-3 h-3 shrink-0" aria-hidden="true" />
+                <span>Main Lagi</span>
+              </button>
+              <button
+                type="button"
+                data-testid="return-to-menu-btn"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  onLeaveRoom();
+                }}
+                className="px-2.5 py-1 rounded bg-slate-800/90 hover:bg-slate-700 border border-slate-500/70 text-slate-100 font-semibold text-[11px] flex items-center gap-1 transition-colors whitespace-nowrap"
+              >
+                <LogOut className="w-3 h-3 text-amber-300 shrink-0" aria-hidden="true" />
+                <span>Menu Utama</span>
+              </button>
+            </div>
           </div>
+        ) : (
+          doorOpenForMe &&
+          playerStatus === 'active' && (
+            <div className="hidden sm:flex items-center gap-2 rounded-md bg-emerald-950/95 border border-emerald-400/90 px-3 py-1.5 text-xs font-semibold text-emerald-100 shadow-lg">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-300 shrink-0" aria-hidden="true" />
+              <span>Pintu Keluar Terbuka — capai gerbang hijau di labirin untuk menang!</span>
+            </div>
+          )
         )}
-        {(playerStatus === 'spectator' || playerStatus === 'eliminated') && (
+        {!isVictoryLobby && (playerStatus === 'spectator' || playerStatus === 'eliminated') && (
           <div className="hidden sm:block rounded-md bg-red-950/95 border border-red-400/90 px-3 py-1.5 text-xs font-semibold text-red-100 shadow-lg">
             Mode Spectator — Nyawa habis. Anda tetap dapat memantau jalannya permainan.
           </div>
@@ -397,6 +505,18 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
           <span className="font-code text-amber-400 font-bold">{roomCode}</span>
           <span className="mx-2 text-slate-600">·</span>
           <span className="font-medium">{modeTitle}</span>
+          {!isVictoryLobby && (
+            <>
+              <span className="mx-2 text-slate-600">·</span>
+              <span
+                data-testid="hud-biome-label"
+                className="font-semibold"
+                style={{ color: getMazeBiomeTheme(biome).accentHex }}
+              >
+                {getMazeBiomeTheme(biome).name}
+              </span>
+            </>
+          )}
         </div>
         <div className="border-l border-slate-700/80 pl-4 flex items-center gap-2">
           <span className="text-[11px] font-medium text-slate-400">Waktu</span>
@@ -426,6 +546,31 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
           </div>
 
           <div className="rpg-panel flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 ml-auto">
+            {onToggleMinimap && (
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="hud-minimap-toggle-btn"
+                aria-pressed={showMinimap}
+                aria-label={showMinimap ? 'Sembunyikan Peta Mini' : 'Tampilkan Peta Mini'}
+                title={showMinimap ? 'Sembunyikan Peta Mini [N]' : 'Tampilkan Peta Mini [N]'}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  retroAudio.playButtonClick();
+                  onToggleMinimap();
+                }}
+                className={`min-h-[34px] px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                  showMinimap
+                    ? 'bg-sky-400 text-slate-950'
+                    : 'bg-[#1e293b] text-slate-200 hover:bg-[#283548]'
+                }`}
+              >
+                <MapIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span className="sm:hidden">Peta</span>
+                <span className="hidden sm:inline">Peta [N]</span>
+              </button>
+            )}
+
             <button
               type="button"
               tabIndex={-1}
@@ -524,12 +669,40 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
           </div>
         )}
 
-        {/* Teacher Live Control Strip (Positioned to the left of the Top-Right Mini-Map on sm+) */}
+        {/* Teacher Live Control Strip (Positioned to the left of the Top-Right Mini-Map when visible) */}
         {playerRole === 'teacher' && (
-          <div className="rpg-panel pointer-events-auto sm:mr-[220px] flex flex-wrap items-center justify-end gap-1 sm:gap-1.5 border-amber-500/60 px-1.5 py-1 sm:p-1.5 max-w-full">
+          <div className={`rpg-panel pointer-events-auto ${minimapClearanceClass} flex flex-wrap items-center justify-end gap-1 sm:gap-1.5 border-amber-500/60 px-1.5 py-1 sm:p-1.5 max-w-full transition-[margin] duration-150`}>
             <span className="hidden sm:inline text-[11px] font-semibold text-amber-300 px-1.5">
               Kontrol Guru
             </span>
+            {onOpenProjectorMode && (
+              <button
+                type="button"
+                data-testid="hud-projector-mode-btn"
+                title="Mode Proyektor / TV Kelas (Big Screen View) [T]"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  onOpenProjectorMode();
+                }}
+                className="min-h-[30px] sm:min-h-[32px] px-2 sm:px-2.5 py-1 rounded bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] sm:text-xs font-bold flex items-center gap-1 whitespace-nowrap transition-colors"
+              >
+                <Tv className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span className="sm:hidden">Mode TV</span>
+                <span className="hidden sm:inline">Mode TV [T]</span>
+              </button>
+            )}
+            <button
+              type="button"
+              data-testid="hud-teacher-analytics-btn"
+              onClick={() => {
+                retroAudio.playButtonClick();
+                setShowAnalyticsModal(true);
+              }}
+              className="min-h-[30px] sm:min-h-[32px] px-2 sm:px-2.5 py-1 rounded bg-sky-950/90 hover:bg-sky-900 border border-sky-400/70 text-[11px] sm:text-xs font-semibold text-sky-200 flex items-center gap-1 whitespace-nowrap"
+            >
+              <BarChart3 className="w-3 h-3 text-sky-300" aria-hidden="true" />
+              <span>Student Analytics</span>
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -566,22 +739,160 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
           </div>
         )}
 
-        {/* Collapsible Live Leaderboard Panel (Docked to the left of the Top-Right Mini-Map on sm+) */}
+        {/* Teacher & Spectator Free-Cam / Student Follow Control Bar */}
+        {(playerRole === 'teacher' ||
+          playerStatus === 'spectator' ||
+          playerStatus === 'eliminated' ||
+          spectatorMode !== 'self') && (
+          <div
+            data-testid="spectator-camera-bar"
+            data-spectator-mode={spectatorMode}
+            className={`rpg-panel pointer-events-auto ${minimapClearanceClass} flex flex-wrap items-center justify-between sm:justify-end gap-1.5 px-2.5 py-1.5 max-w-full transition-[margin] duration-150 ${
+              spectatorMode === 'follow_student'
+                ? 'border-emerald-400/80 bg-[#071c18]/92'
+                : spectatorMode === 'free_cam'
+                ? 'border-sky-400/80 bg-[#081627]/92'
+                : 'border-slate-600/80'
+            }`}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              {spectatorMode === 'follow_student' ? (
+                <Eye className="w-3.5 h-3.5 text-emerald-400 shrink-0" aria-hidden="true" />
+              ) : (
+                <Camera className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
+              )}
+              <span
+                data-testid="spectator-status-label"
+                className="text-[11px] font-bold truncate max-w-[175px] sm:max-w-[230px]"
+              >
+                {spectatorMode === 'follow_student' ? (
+                  <span className="text-emerald-300">
+                    MEMANTAU: {spectatedPlayerName || 'Siswa'}
+                  </span>
+                ) : spectatorMode === 'free_cam' ? (
+                  <span className="text-sky-300">FREE-CAM BEBAS (WASD / Klik Peta)</span>
+                ) : (
+                  <span className="text-slate-200">Kamera Guru · Pilih Siswa di Rank</span>
+                )}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                data-testid="spectator-prev-btn"
+                aria-label="Pantau Siswa Sebelumnya"
+                title="Pantau Siswa Sebelumnya"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  onCycleSpectatePlayer?.(-1);
+                }}
+                className="min-h-[28px] px-1.5 py-0.5 rounded bg-[#1e293b] hover:bg-[#283548] border border-slate-600/70 text-[11px] font-semibold text-slate-200 flex items-center gap-0.5"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                <span className="hidden sm:inline">Siswa</span>
+              </button>
+              <button
+                type="button"
+                data-testid="spectator-next-btn"
+                aria-label="Pantau Siswa Berikutnya"
+                title="Pantau Siswa Berikutnya"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  onCycleSpectatePlayer?.(1);
+                }}
+                className="min-h-[28px] px-1.5 py-0.5 rounded bg-[#1e293b] hover:bg-[#283548] border border-slate-600/70 text-[11px] font-semibold text-slate-200 flex items-center gap-0.5"
+              >
+                <span className="hidden sm:inline">Siswa</span>
+                <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                data-testid="spectator-freecam-btn"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  onChangeSpectatorMode?.(spectatorMode === 'free_cam' ? 'self' : 'free_cam');
+                }}
+                className={`min-h-[28px] px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 transition-colors whitespace-nowrap ${
+                  spectatorMode === 'free_cam'
+                    ? 'bg-sky-400 text-slate-950'
+                    : 'bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/60 text-sky-200'
+                }`}
+              >
+                <Camera className="w-3 h-3 shrink-0" aria-hidden="true" />
+                <span>Free-Cam</span>
+              </button>
+              {spectatorMode !== 'self' && (
+                <button
+                  type="button"
+                  data-testid="spectator-self-btn"
+                  onClick={() => {
+                    retroAudio.playButtonClick();
+                    onChangeSpectatorMode?.('self');
+                  }}
+                  className="min-h-[28px] px-2 py-0.5 rounded bg-amber-400/20 hover:bg-amber-400/35 border border-amber-400/60 text-amber-200 text-[11px] font-semibold flex items-center gap-1 whitespace-nowrap"
+                >
+                  <UserCheck className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  <span>Kamera Saya</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Collapsible Live Leaderboard Panel (Docked to the left of the Top-Right Mini-Map when visible) */}
         {showLeaderboard && (
-          <div className="rpg-panel pointer-events-auto sm:mr-[220px] w-full sm:w-80 max-w-sm max-h-[52dvh] sm:max-h-96 overflow-y-auto rpg-scroll p-3.5 text-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-700/80 pb-2 mb-2.5">
+          <div className={`rpg-panel pointer-events-auto ${minimapClearanceClass} w-full sm:w-80 max-w-sm max-h-[52dvh] sm:max-h-96 overflow-y-auto rpg-scroll p-3.5 text-slate-100 transition-[margin] duration-150`}>
+            <div className="flex items-center justify-between border-b border-slate-700/80 pb-2 mb-2">
               <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
                 <Trophy className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Klasemen Real-Time</span>
               </span>
-              <button
-                type="button"
-                aria-label="Tutup Leaderboard"
-                onClick={() => setShowLeaderboard(false)}
-                className="w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  data-testid="leaderboard-freecam-btn"
+                  onClick={() => {
+                    retroAudio.playButtonClick();
+                    onChangeSpectatorMode?.(spectatorMode === 'free_cam' ? 'self' : 'free_cam');
+                  }}
+                  className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 transition-colors ${
+                    spectatorMode === 'free_cam'
+                      ? 'bg-sky-400 text-slate-950'
+                      : 'bg-sky-950/90 hover:bg-sky-900 border border-sky-400/60 text-sky-200'
+                  }`}
+                >
+                  <Camera className="w-3 h-3" aria-hidden="true" />
+                  <span>Free-Cam</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Tutup Leaderboard"
+                  onClick={() => setShowLeaderboard(false)}
+                  className="w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-2.5 flex items-center justify-between gap-2 rounded bg-slate-900/90 border border-slate-700/80 px-2.5 py-1.5 text-[10px] text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <Eye className="w-3 h-3 text-emerald-400 shrink-0" aria-hidden="true" />
+                <span>Klik nama siswa untuk mengarahkan kamera ke posisinya</span>
+              </span>
+              {spectatorMode !== 'self' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    retroAudio.playButtonClick();
+                    onChangeSpectatorMode?.('self');
+                  }}
+                  className="px-1.5 py-0.5 rounded bg-amber-400/20 hover:bg-amber-400/35 border border-amber-400/50 text-amber-300 font-semibold shrink-0"
+                >
+                  Reset
+                </button>
+              )}
             </div>
 
             {mode === 'team' && teamLeaderboard.length > 0 && (
@@ -612,36 +923,67 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
             )}
 
             <div className="space-y-1.5">
-              {leaderboard.slice(0, 15).map((entry) => (
-                <div
-                  key={entry.playerId}
-                  className="rpg-well flex items-center justify-between text-xs px-2.5 py-1.5"
-                >
-                  <div className="flex items-center gap-2 truncate">
-                    <span className="font-code text-slate-400 w-6 tabular-nums">#{entry.rank}</span>
-                    <img
-                      src={getCharacterAvatarDataUrl(entry.characterId, entry.outfitColor)}
-                      alt={entry.name}
-                      referrerPolicy="no-referrer"
-                      className="w-5 h-5 rounded"
-                    />
-                    <span className="truncate max-w-[110px] font-medium text-slate-100">
-                      {entry.name}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 font-code tabular-nums shrink-0">
-                    <span className="text-amber-400">{entry.keysCollected}K</span>
-                    <span className="font-bold text-white w-11 text-right">{entry.score}</span>
-                  </div>
-                </div>
-              ))}
+              {leaderboard.slice(0, 15).map((entry) => {
+                const isSpectated =
+                  spectatorMode === 'follow_student' && spectatedPlayerId === entry.playerId;
+
+                return (
+                  <button
+                    key={entry.playerId}
+                    type="button"
+                    data-testid={`leaderboard-spectate-${entry.playerId}`}
+                    data-spectate-row="true"
+                    data-spectated={isSpectated ? 'true' : 'false'}
+                    aria-label={`Pantau siswa ${entry.name}`}
+                    onClick={() => {
+                      retroAudio.playButtonClick();
+                      onSelectSpectatePlayer?.(entry.playerId);
+                    }}
+                    className={`w-full text-left flex items-center justify-between text-xs px-2.5 py-1.5 rounded-md border transition-colors ${
+                      isSpectated
+                        ? 'bg-emerald-950/75 border-emerald-400 text-emerald-100 shadow-[0_0_12px_rgba(16,185,129,0.28)]'
+                        : 'bg-[#0b101b] hover:bg-[#172236] border-slate-700/80 hover:border-sky-400/60 text-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate min-w-0">
+                      <span className="font-code text-slate-400 w-5 tabular-nums shrink-0">
+                        #{entry.rank}
+                      </span>
+                      <img
+                        src={getCharacterAvatarDataUrl(entry.characterId, entry.outfitColor)}
+                        alt={entry.name}
+                        referrerPolicy="no-referrer"
+                        className="w-5 h-5 rounded shrink-0"
+                      />
+                      <span className="truncate max-w-[100px] font-semibold text-slate-100">
+                        {entry.name}
+                      </span>
+                      {isSpectated ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-400/20 border border-emerald-400/60 text-[9px] font-bold text-emerald-300 shrink-0">
+                          <Eye className="w-2.5 h-2.5" aria-hidden="true" />
+                          <span>DIPANTAU</span>
+                        </span>
+                      ) : (
+                        <Eye
+                          className="w-3 h-3 text-slate-500 shrink-0"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 font-code tabular-nums shrink-0 ml-1">
+                      <span className="text-amber-400">{entry.keysCollected}K</span>
+                      <span className="font-bold text-white w-10 text-right">{entry.score}</span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* Collapsible Quick Chat & System Log Drawer (Docked to the left of the Top-Right Mini-Map on sm+) */}
+        {/* Collapsible Quick Chat & System Log Drawer (Docked to the left of the Top-Right Mini-Map when visible) */}
         {showChat && (
-          <div className="rpg-panel pointer-events-auto sm:mr-[220px] w-full sm:w-80 max-w-sm p-3.5 text-slate-100">
+          <div className={`rpg-panel pointer-events-auto ${minimapClearanceClass} w-full sm:w-80 max-w-sm p-3.5 text-slate-100 transition-[margin] duration-150`}>
             <div className="flex items-center justify-between border-b border-slate-700/80 pb-2 mb-2.5">
               <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
                 <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
@@ -673,16 +1015,25 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
               ))}
             </div>
 
-            {/* Emoji Reaction Bar */}
-            <div className="flex items-center gap-1 mb-2">
-              {EMOJI_REACTIONS.map((em) => (
+            {/* Overhead Pixel Emote Reaction Bar in Chat Drawer */}
+            <div className="grid grid-cols-3 gap-1 mb-2">
+              {EMOTE_DEFINITIONS.map((em) => (
                 <button
                   key={em.id}
                   type="button"
-                  onClick={() => onSendChat(`[${em.symbol}] ${em.label}`, 'emoji')}
-                  className="rpg-btn-slate flex-1 min-h-[34px] py-1 text-[11px] font-bold text-amber-300"
+                  data-testid={`chat-emote-btn-${em.id}`}
+                  onClick={() => {
+                    retroAudio.playButtonClick();
+                    if (onTriggerEmote) {
+                      onTriggerEmote(em.id);
+                    } else {
+                      onSendChat(em.chatText, 'emoji');
+                    }
+                  }}
+                  className="rpg-btn-slate min-h-[32px] px-1.5 py-1 text-[10px] font-bold flex items-center justify-center gap-1 truncate"
+                  style={{ color: em.accentColor }}
                 >
-                  {em.symbol}
+                  <span>{em.shortTag}</span>
                 </button>
               ))}
             </div>
@@ -722,6 +1073,50 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
             </form>
           </div>
         )}
+      </div>
+
+      {/* BOTTOM-RIGHT OVERHEAD PIXEL EMOTE REACTION BAR (Lompat Gembira, Mahkota, Kembang Api, dll.) */}
+      <div
+        data-testid="quick-emote-bar"
+        className="fixed bottom-2.5 right-2.5 sm:bottom-3 sm:right-3 z-20 pointer-events-auto rpg-panel px-2 py-1.5 flex flex-col items-end gap-1 pb-[env(safe-area-inset-bottom)]"
+      >
+        <div className="flex items-center justify-between w-full gap-2 px-0.5">
+          <span className="text-[9px] sm:text-[10px] font-bold text-amber-300 tracking-wide flex items-center gap-1">
+            <Sparkles className="w-3 h-3 shrink-0" aria-hidden="true" />
+            <span>Emote Karakter</span>
+          </span>
+          <span className="hidden sm:inline font-code text-[9px] text-slate-400">Tombol [1-6]</span>
+        </div>
+        <div className="grid grid-cols-3 sm:flex items-center gap-1">
+          {EMOTE_DEFINITIONS.map((emote, idx) => (
+            <button
+              key={emote.id}
+              type="button"
+              tabIndex={-1}
+              data-testid={`emote-btn-${emote.id}`}
+              title={`${emote.label} [${idx + 1}]`}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                retroAudio.playButtonClick();
+                if (onTriggerEmote) {
+                  onTriggerEmote(emote.id);
+                } else {
+                  onSendChat(emote.chatText, 'emoji');
+                }
+              }}
+              className="min-h-[32px] px-2 py-1 rounded bg-[#141e30] hover:bg-[#1f2e47] active:translate-y-[1px] border text-[10px] sm:text-[11px] font-bold flex items-center justify-center gap-1 transition-all whitespace-nowrap"
+              style={{
+                borderColor: `${emote.accentColor}66`,
+                color: emote.accentColor,
+              }}
+            >
+              <span>{emote.shortTag}</span>
+              <span className="hidden md:inline font-code text-[9px] text-slate-400">
+                [{idx + 1}]
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* PAUSE MODAL CARD (Single Focused Modal per game_title_and_hud.md) */}
@@ -815,6 +1210,35 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
                 <span>Keluar ke Menu Utama</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TEACHER LIVE STUDENT ANALYTICS MODAL */}
+      {showAnalyticsModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Student Analytics"
+          className="fixed inset-0 z-50 bg-black/80 flex items-start justify-center p-3.5 sm:p-6 overflow-y-auto rpg-scroll pointer-events-auto"
+        >
+          <div className="rpg-modal w-full max-w-5xl p-4 sm:p-6 text-slate-100 space-y-4 my-auto">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-700/80 pb-3">
+              <div className="flex items-center gap-2 text-base font-bold text-sky-300">
+                <BarChart3 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>Student Analytics · Pemantauan Langsung Guru</span>
+              </div>
+              <button
+                type="button"
+                aria-label="Tutup Student Analytics"
+                onClick={() => setShowAnalyticsModal(false)}
+                className="w-8 h-8 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <StudentAnalyticsPanel roomCode={roomCode} liveLeaderboard={leaderboard} />
           </div>
         </div>
       )}

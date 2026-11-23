@@ -6,6 +6,7 @@ import {
   Download,
   FileUp,
   FolderOpen,
+  Layers,
   Pencil,
   Plus,
   Sparkles,
@@ -17,9 +18,15 @@ import {
   buildCustomQuestionsCsvTemplate,
   parseUploadedQuestionsText,
 } from '../shared/questionBankParser';
+import {
+  QUESTION_BANK_PRESET_PACKS,
+  QuestionBankPresetPack,
+  getAllPresetQuestions,
+} from '../shared/questionBankPresets';
 import { retroAudio } from '../game/audio/RetroAudio';
 
 const LOCAL_CUSTOM_BANK_KEY = 'math_maze_teacher_custom_questions';
+const MAX_ROOM_CUSTOM_QUESTIONS = 100;
 
 function loadSavedTeacherBank(): CustomQuestionItem[] {
   try {
@@ -60,6 +67,7 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
   onUpdateCustomQuestions,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const sampleIndexRef = useRef(0);
 
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftOptionA, setDraftOptionA] = useState('');
@@ -133,8 +141,8 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
           : q
       );
     } else {
-      if (existingList.length >= 50) {
-        setFormError('Maksimal 50 soal buatan guru per room.');
+      if (existingList.length >= MAX_ROOM_CUSTOM_QUESTIONS) {
+        setFormError(`Maksimal ${MAX_ROOM_CUSTOM_QUESTIONS} soal buatan guru per room.`);
         return;
       }
       const newItem: CustomQuestionItem = {
@@ -185,15 +193,82 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
     retroAudio.playButtonClick();
   };
 
-  const handleFillSample = () => {
-    setDraftPrompt(
-      'Sebuah taman berbentuk persegi panjang berukuran 15 m × 8 m. Berapakah keliling taman tersebut?'
-    );
-    setDraftOptionA('46 m');
-    setDraftOptionB('120 m');
-    setDraftCorrect('A');
-    setDraftExplanation('Keliling persegi panjang = 2 × (p + l) = 2 × (15 + 8) = 46 m');
+  const handleAddPresetPack = (pack: QuestionBankPresetPack) => {
+    const existing = customQuestions ?? [];
+    const existingPrompts = new Set(existing.map((q) => q.prompt.toLowerCase()));
+    const remainingSlots = Math.max(0, MAX_ROOM_CUSTOM_QUESTIONS - existing.length);
+    if (remainingSlots === 0) {
+      setFormError(`Kapasitas maksimal ${MAX_ROOM_CUSTOM_QUESTIONS} soal per room sudah penuh.`);
+      return;
+    }
+
+    const freshItems = pack.questions
+      .filter((q) => !existingPrompts.has(q.prompt.toLowerCase()))
+      .slice(0, remainingSlots)
+      .map((q, idx) => ({
+        ...q,
+        id: `${q.id}-${Date.now().toString(36)}-${idx}`,
+      }));
+
+    if (freshItems.length === 0) {
+      setUploadNotice(`Semua soal dalam "${pack.title}" sudah ada di daftar soal room.`);
+      return;
+    }
+
+    const nextList = [...existing, ...freshItems];
     setFormError(null);
+    setUploadNotice(
+      `Berhasil menambahkan ${freshItems.length} soal dari "${pack.title}" ke Bank Soal Room!`
+    );
+    commitQuestionList(nextList);
+    retroAudio.playButtonClick();
+  };
+
+  const handleLoadAllPresetPacks = () => {
+    const existing = customQuestions ?? [];
+    const existingPrompts = new Set(existing.map((q) => q.prompt.toLowerCase()));
+    const remainingSlots = Math.max(0, MAX_ROOM_CUSTOM_QUESTIONS - existing.length);
+    if (remainingSlots === 0) {
+      setFormError(`Kapasitas maksimal ${MAX_ROOM_CUSTOM_QUESTIONS} soal per room sudah penuh.`);
+      return;
+    }
+
+    const allPresets = getAllPresetQuestions();
+    const freshItems = allPresets
+      .filter((q) => !existingPrompts.has(q.prompt.toLowerCase()))
+      .slice(0, remainingSlots)
+      .map((q, idx) => ({
+        ...q,
+        id: `${q.id}-${Date.now().toString(36)}-${idx}`,
+      }));
+
+    if (freshItems.length === 0) {
+      setUploadNotice('Seluruh 50 soal paket kurikulum sudah ada di daftar soal room.');
+      return;
+    }
+
+    const nextList = [...existing, ...freshItems];
+    setFormError(null);
+    setUploadNotice(
+      `Berhasil memuat ${freshItems.length} soal dari 5 Paket Kurikulum Matematika ke dalam Room!`
+    );
+    commitQuestionList(nextList);
+    retroAudio.playButtonClick();
+  };
+
+  const handleFillSample = () => {
+    const allPresets = getAllPresetQuestions();
+    const sample = allPresets[sampleIndexRef.current % allPresets.length];
+    sampleIndexRef.current += 1;
+    if (sample) {
+      setDraftPrompt(sample.prompt);
+      setDraftOptionA(sample.optionA);
+      setDraftOptionB(sample.optionB);
+      setDraftCorrect(sample.correctOption);
+      setDraftExplanation(sample.explanation ?? '');
+      setFormError(null);
+      retroAudio.playButtonClick();
+    }
   };
 
   const handleDownloadCsvTemplate = () => {
@@ -224,9 +299,9 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
       }
 
       const existing = customQuestions ?? [];
-      const remainingSlots = Math.max(0, 50 - existing.length);
+      const remainingSlots = Math.max(0, MAX_ROOM_CUSTOM_QUESTIONS - existing.length);
       if (remainingSlots === 0) {
-        setFormError('Kapasitas maksimal 50 soal per room sudah penuh.');
+        setFormError(`Kapasitas maksimal ${MAX_ROOM_CUSTOM_QUESTIONS} soal per room sudah penuh.`);
         return;
       }
 
@@ -338,6 +413,68 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
             </div>
           )}
 
+          {/* Curated Question Bank Preset Packs (50 Questions across 5 Packs) */}
+          <div
+            data-testid="preset-question-packs-panel"
+            className="rpg-well p-3.5 space-y-3 border border-emerald-500/35"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-xs sm:text-sm font-bold text-emerald-300 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-amber-300 shrink-0" aria-hidden="true" />
+                  <span>Paket Bank Soal Siap Pakai (50 Soal Kurikulum)</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Tambahkan paket soal cerita, pecahan, aljabar, geometri, atau olimpiade ke room dalam 1 klik.
+                </p>
+              </div>
+              <button
+                type="button"
+                data-testid="load-all-presets-btn"
+                onClick={handleLoadAllPresetPacks}
+                className="min-h-[36px] px-3 py-1.5 rounded-md bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>Muat Semua Paket (+50 Soal)</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {QUESTION_BANK_PRESET_PACKS.map((pack) => (
+                <div
+                  key={pack.id}
+                  className="rounded-md bg-[#0b101b] border border-slate-700/80 p-2.5 flex flex-col justify-between gap-2"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-[10px] font-code font-bold uppercase tracking-wider text-amber-300">
+                        {pack.badgeText}
+                      </span>
+                      <span className="text-[10px] font-code text-emerald-300">
+                        {pack.questions.length} Soal
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-white mt-0.5 leading-snug">
+                      {pack.title}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                      {pack.subtitle}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid={`preset-pack-btn-${pack.id}`}
+                    onClick={() => handleAddPresetPack(pack)}
+                    className="w-full min-h-[34px] px-2.5 py-1.5 rounded bg-emerald-600/25 hover:bg-emerald-500/35 border border-emerald-400/60 text-emerald-200 font-bold text-xs flex items-center justify-center gap-1 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>Tambah Paket (+{pack.questions.length} Soal)</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Upload / Import Toolbar */}
           <div className="rpg-well p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div>
@@ -371,7 +508,7 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
                 className="rpg-btn-slate min-h-[38px] px-3 py-1.5 text-xs font-medium text-slate-200 flex items-center gap-1.5 whitespace-nowrap"
               >
                 <Download className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                <span>Template CSV</span>
+                <span>Template CSV (15 Soal)</span>
               </button>
             </div>
           </div>
@@ -581,7 +718,7 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
             <div className="space-y-2.5">
               <div className="flex items-center justify-between text-xs text-slate-300">
                 <span className="font-semibold">
-                  Daftar Soal Room (<span className="font-code">{customQuestions.length}/50</span>)
+                  Daftar Soal Room (<span className="font-code">{customQuestions.length}/{MAX_ROOM_CUSTOM_QUESTIONS}</span>)
                 </span>
                 <button
                   type="button"

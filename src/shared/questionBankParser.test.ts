@@ -6,7 +6,7 @@ test('parseUploadedQuestionsText parses CSV template with headers and quoted fie
   const csv = buildCustomQuestionsCsvTemplate();
   const res = parseUploadedQuestionsText(csv, 'soal-kelas.csv');
   assert.equal(res.ok, true);
-  assert.equal(res.questions.length, 3);
+  assert.equal(res.questions.length, 15);
   assert.equal(res.skippedCount, 0);
   assert.equal(res.questions[0].prompt, 'Berapakah hasil dari 25 x 4?');
   assert.equal(res.questions[0].optionA, '100');

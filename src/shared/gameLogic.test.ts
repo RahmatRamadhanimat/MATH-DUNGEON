@@ -338,8 +338,11 @@ import {
   MINIMAP_CELL_DISCOVERED,
   MINIMAP_CELL_UNDISCOVERED,
   MINIMAP_CELL_VISIBLE,
+  computeMinimapViewport,
   createDiscoveredMinimapState,
   getMinimapCellState,
+  getNearestObjectiveCompass,
+  minimapPixelToWorldCoord,
   updateDiscoveredMinimap,
 } from './minimapSystem';
 
@@ -390,6 +393,649 @@ test('DiscoveredMinimapState tracks player exploration, remembers visited corrid
     }
   }
 });
+
+import {
+  VICTORY_LOBBY_LANDMARKS,
+  createVictoryLobbyMaze,
+  getNearestLobbyLandmark,
+  isVictoryLobbyMaze,
+} from './victoryLobbyMap';
+
+test('Post-Dungeon Victory Sanctuary Lobby Map has reachable landmarks and 100% illuminated minimap', () => {
+  const lobby = createVictoryLobbyMaze();
+  assert.equal(isVictoryLobbyMaze(lobby), true);
+  assert.equal(lobby.width, 27);
+  assert.equal(lobby.height, 19);
+  assert.equal(lobby.keys.length, 0);
+  assert.equal(lobby.secretRooms.length, 3);
+
+  // Verify spawn tile (South Arrival Gate at 13,15) and all landmarks are walkable and reachable via BFS
+  const landmarkTargets = VICTORY_LOBBY_LANDMARKS.map((lm) => ({ x: lm.tileX, y: lm.tileY }));
+  const bfs = validateMazeReachability(lobby.grid, lobby.spawnTile, landmarkTargets);
+  assert.equal(bfs.valid, true, 'All Victory Lobby landmarks must be reachable from Arrival Gate');
+  assert.equal(bfs.reachableCount, landmarkTargets.length);
+
+  // Verify getNearestLobbyLandmark detects #1 Podium and Scoreboard Monument
+  const nearPodium1 = getNearestLobbyLandmark(13.5 * 32, 4.5 * 32, 32, 2.2);
+  assert.equal(nearPodium1?.id, 'podium_1');
+  const nearMonument = getNearestLobbyLandmark(13.5 * 32, 9.5 * 32, 32, 2.2);
+  assert.equal(nearMonument?.id, 'scoreboard_monument');
+
+  // Verify minimap starts and stays 100% illuminated in Victory Lobby
+  const mState = createDiscoveredMinimapState(lobby);
+  assert.equal(mState.discoveredRoomIndices.size, 3);
+  const summary = updateDiscoveredMinimap(mState, lobby, 13.5 * 32, 15.5 * 32, 32, 8);
+  assert.equal(summary.discoveryPercent, 100);
+  assert.equal(summary.discoveredRoomsCount, 3);
+});
+
+import {
+  cycleSpectatedStudentId,
+  resolveSpectatorCameraTarget,
+  stepFreeCamPosition,
+} from './spectatorCamera';
+
+test('Spectator Camera System resolves student follow targets, Free-Cam movement bounds, and student cycling', () => {
+  const players = [
+    {
+      id: 'stu-1',
+      name: 'Arya',
+      role: 'student' as const,
+      x: 120,
+      y: 160,
+      status: 'active' as const,
+      score: 250,
+      keysCollected: 2,
+      lives: 3,
+      characterId: 'knight',
+      outfitColor: '#2563EB',
+    },
+    {
+      id: 'stu-2',
+      name: 'Lyra',
+      role: 'student' as const,
+      x: 420,
+      y: 380,
+      status: 'active' as const,
+      score: 500,
+      keysCollected: 4,
+      lives: 3,
+      characterId: 'mage',
+      outfitColor: '#7C3AED',
+    },
+  ];
+  const interp = new Map([
+    ['stu-1', { x: 128, y: 164 }],
+    ['stu-2', { x: 432, y: 390 }],
+  ]);
+
+  // 1. Follow Student mode locks onto the selected student's interpolated position
+  const followRes = resolveSpectatorCameraTarget({
+    mode: 'follow_student',
+    spectatedPlayerId: 'stu-2',
+    localPos: { x: 64, y: 64 },
+    freeCamPos: { x: 200, y: 200 },
+    players,
+    interpolatedPositions: interp,
+  });
+  assert.equal(followRes.activeMode, 'follow_student');
+  assert.equal(followRes.followedPlayer?.name, 'Lyra');
+  assert.equal(followRes.targetX, 432);
+  assert.equal(followRes.targetY, 390);
+
+  // 2. Free-Cam mode uses freeCamPos and clamps within maze world bounds
+  const steppedFreeCam = stepFreeCamPosition({
+    x: 200,
+    y: 200,
+    dx: 1,
+    dy: -0.5,
+    dt: 0.5,
+    mazeWidth: 35,
+    mazeHeight: 35,
+    tileSize: 32,
+    speed: 300,
+  });
+  assert.equal(steppedFreeCam.x, 350);
+  assert.equal(steppedFreeCam.y, 125);
+
+  const clampedFreeCam = stepFreeCamPosition({
+    x: 10,
+    y: 10,
+    dx: -1,
+    dy: -1,
+    dt: 1,
+    mazeWidth: 35,
+    mazeHeight: 35,
+    tileSize: 32,
+    speed: 500,
+  });
+  assert.equal(clampedFreeCam.x, 16);
+  assert.equal(clampedFreeCam.y, 16);
+
+  // 3. Student cycling wraps cleanly forward and backward
+  const ids = ['stu-1', 'stu-2', 'stu-3'];
+  assert.equal(cycleSpectatedStudentId(ids, null, 1), 'stu-1');
+  assert.equal(cycleSpectatedStudentId(ids, 'stu-1', 1), 'stu-2');
+  assert.equal(cycleSpectatedStudentId(ids, 'stu-3', 1), 'stu-1');
+  assert.equal(cycleSpectatedStudentId(ids, 'stu-1', -1), 'stu-3');
+});
+
+import { computeMvpHighlights, formatAnswerSpeedSeconds } from './scoreSystem';
+import {
+  ActiveOverheadEmote,
+  evaluatePlayerEmote,
+  isValidEmoteId,
+  triggerPlayerEmote,
+} from './emoteSystem';
+
+test('MVP Badges & End-of-Session Titles assign "Si Kilat Matematika", "Penjelajah Sejati", and "Akurasi Sempurna 100%" accurately', () => {
+  assert.equal(formatAnswerSpeedSeconds(1850), '1.9d');
+
+  const lb = buildIndividualLeaderboard([
+    {
+      playerId: 'stu-fast',
+      name: 'Raka Kilat',
+      characterId: 'ranger',
+      outfitColor: '#16A34A',
+      teamId: 'green',
+      score: 920,
+      keysCollected: 5,
+      correctAnswers: 5,
+      wrongAnswers: 0,
+      lives: 3,
+      status: 'escaped',
+      completionTimeSeconds: 95,
+      fastestAnswerMs: 1420,
+      tilesExploredCount: 84,
+    },
+    {
+      playerId: 'stu-explorer',
+      name: 'Nadia Kompas',
+      characterId: 'paladin',
+      outfitColor: '#D97706',
+      teamId: 'yellow',
+      score: 780,
+      keysCollected: 4,
+      correctAnswers: 4,
+      wrongAnswers: 1,
+      lives: 2,
+      status: 'active',
+      completionTimeSeconds: null,
+      fastestAnswerMs: 3600,
+      tilesExploredCount: 196,
+    },
+  ]);
+
+  const raka = lb.find((e) => e.playerId === 'stu-fast')!;
+  const nadia = lb.find((e) => e.playerId === 'stu-explorer')!;
+
+  assert.ok(raka.mvpBadges.some((b) => b.title === 'Si Kilat Matematika'));
+  assert.ok(raka.mvpBadges.some((b) => b.title === 'Akurasi Sempurna 100%'));
+  assert.ok(nadia.mvpBadges.some((b) => b.title === 'Penjelajah Sejati'));
+
+  const highlights = computeMvpHighlights(lb);
+  assert.equal(highlights.length, 3);
+  assert.equal(highlights[0].badge.title, 'Si Kilat Matematika');
+  assert.equal(highlights[0].winner.name, 'Raka Kilat');
+  assert.equal(highlights[1].badge.title, 'Penjelajah Sejati');
+  assert.equal(highlights[1].winner.name, 'Nadia Kompas');
+  assert.equal(highlights[2].badge.title, 'Akurasi Sempurna 100%');
+  assert.equal(highlights[2].winner.name, 'Raka Kilat');
+});
+
+test('Overhead Animated Pixel Emotes trigger, animate character jump bounce, and expire cleanly', () => {
+  assert.equal(isValidEmoteId('happy_jump'), true);
+  assert.equal(isValidEmoteId('crown'), true);
+  assert.equal(isValidEmoteId('fireworks'), true);
+  assert.equal(isValidEmoteId('unknown_emote'), false);
+
+  const map = new Map<string, ActiveOverheadEmote>();
+  const created = triggerPlayerEmote(map, {
+    playerId: 'plr-1',
+    playerName: 'Arya',
+    emoteId: 'happy_jump',
+    nowMs: 1000,
+    durationMs: 2800,
+  });
+
+  assert.equal(created.emoteId, 'happy_jump');
+  assert.equal(map.size, 1);
+
+  // Mid-animation evaluation (t = 1650ms) produces popScale >= 1 and negative characterBounceY (jumping up)
+  const evalMid = evaluatePlayerEmote(map, 'plr-1', 1650);
+  assert.ok(evalMid, 'Emote should be active at 1650ms');
+  assert.equal(evalMid.emote.id, 'happy_jump');
+  assert.equal(evalMid.alpha, 1);
+  assert.ok(evalMid.characterBounceY <= 0, 'Character bounce offset must be upward (<= 0)');
+
+  // After expiration (t = 3900ms > 3800ms), evaluatePlayerEmote cleans up map and returns null
+  const evalExpired = evaluatePlayerEmote(map, 'plr-1', 3900);
+  assert.equal(evalExpired, null);
+  assert.equal(map.size, 0);
+});
+
+import {
+  buildStudentAnalyticsReport,
+  resolveCategoryDisplayInfo,
+} from './studentAnalytics';
+
+test('buildStudentAnalyticsReport computes average response times, error rates, and learning gap severity', () => {
+  const catInfo = resolveCategoryDisplayInfo('fractions');
+  assert.equal(catInfo.shortName, 'Pecahan');
+  assert.equal(catInfo.difficultyLabel, 'Sedang');
+
+  const report = buildStudentAnalyticsReport({
+    categoryStats: [
+      {
+        category: 'algebra',
+        attempts: 20,
+        correct: 12,
+        wrong: 8,
+        totalResponseMs: 20 * 7200, // 7.2s avg
+      },
+      {
+        category: 'multiplication',
+        attempts: 30,
+        correct: 27,
+        wrong: 3,
+        totalResponseMs: 30 * 3200, // 3.2s avg
+      },
+    ],
+    liveLeaderboard: [
+      {
+        rank: 1,
+        playerId: 'stu-1',
+        name: 'Siti Aminah',
+        characterId: 'mage',
+        outfitColor: '#7C3AED',
+        teamId: 'blue',
+        score: 900,
+        keysCollected: 5,
+        correctAnswers: 5,
+        wrongAnswers: 1,
+        accuracy: 83,
+        lives: 2,
+        status: 'escaped',
+        completionTimeSeconds: 120,
+        fastestAnswerMs: 1800,
+        tilesExploredCount: 110,
+        mvpBadges: [],
+      },
+    ],
+  });
+
+  assert.equal(report.topicAnalytics.length, 2);
+  // Sorted by highest errorRatePercent first: algebra (40%) before multiplication (10%)
+  assert.equal(report.topicAnalytics[0].category, 'algebra');
+  assert.equal(report.topicAnalytics[0].errorRatePercent, 40);
+  assert.equal(report.topicAnalytics[0].avgResponseSeconds, 7.2);
+  assert.equal(report.topicAnalytics[0].severity, 'critical');
+
+  assert.equal(report.topicAnalytics[1].category, 'multiplication');
+  assert.equal(report.topicAnalytics[1].errorRatePercent, 10);
+  assert.equal(report.topicAnalytics[1].avgResponseSeconds, 3.2);
+  assert.equal(report.topicAnalytics[1].severity, 'mastered');
+
+  assert.equal(report.summary.mostChallengingTopic?.category, 'algebra');
+  assert.equal(report.summary.slowestTopic?.category, 'algebra');
+  assert.equal(report.summary.totalAttemptsAnalyzed, 50);
+  assert.equal(report.summary.totalErrorsAnalyzed, 11);
+  assert.ok(report.studentResponses.some((s) => s.studentName === 'Siti Aminah'));
+});
+
+import { QUESTION_BANK_PRESET_PACKS, getAllPresetQuestions } from './questionBankPresets';
+
+test('Question Bank Presets provide 50 curated curriculum questions across 5 packs and support up to 100 questions per room', () => {
+  assert.equal(QUESTION_BANK_PRESET_PACKS.length, 5);
+  const allPresets = getAllPresetQuestions();
+  assert.equal(allPresets.length, 50);
+
+  const sanitized = sanitizeCustomQuestions(allPresets);
+  assert.equal(sanitized.length, 50);
+
+  for (const q of sanitized) {
+    assert.ok(q.prompt.length >= 10, `Prompt too short: ${q.prompt}`);
+    assert.ok(q.optionA.length > 0);
+    assert.ok(q.optionB.length > 0);
+    assert.notEqual(q.optionA.toLowerCase(), q.optionB.toLowerCase());
+    assert.ok(q.correctOption === 'A' || q.correctOption === 'B');
+    assert.ok(q.explanation && q.explanation.length > 5);
+  }
+
+  // Verify redesigned procedural maze rooms have atmospheric Indonesian names
+  const maze = generateProceduralMaze({ level: 2, keyCount: 6, seed: 2026 });
+  assert.ok(maze.secretRooms.every((r) => typeof r.name === 'string' && r.name.length > 3));
+  assert.equal(maze.grid[maze.spawnTile.y][maze.spawnTile.x], TileType.PORTAL_SPAWN);
+});
+
+test('Mini-map viewport, click-to-world projection, and objective compass support large 75x75 mazes', () => {
+  // 1. Full mode covers entire 75x75 maze without zoom
+  const fullVp = computeMinimapViewport({
+    mazeWidth: 75,
+    mazeHeight: 75,
+    focusTileX: 37,
+    focusTileY: 37,
+    viewMode: 'full',
+    radarSpanTiles: 25,
+  });
+  assert.equal(fullVp.isZoomed, false);
+  assert.equal(fullVp.startX, 0);
+  assert.equal(fullVp.startY, 0);
+  assert.equal(fullVp.spanX, 75);
+  assert.equal(fullVp.spanY, 75);
+
+  // 2. Radar mode centers a 25x25 window around the focus tile and clamps cleanly at map corners
+  const centerRadar = computeMinimapViewport({
+    mazeWidth: 75,
+    mazeHeight: 75,
+    focusTileX: 40,
+    focusTileY: 30,
+    viewMode: 'radar',
+    radarSpanTiles: 25,
+  });
+  assert.equal(centerRadar.isZoomed, true);
+  assert.equal(centerRadar.spanX, 25);
+  assert.equal(centerRadar.spanY, 25);
+  assert.equal(centerRadar.startX, 27.5);
+  assert.equal(centerRadar.startY, 17.5);
+
+  const topLeftRadar = computeMinimapViewport({
+    mazeWidth: 75,
+    mazeHeight: 75,
+    focusTileX: 3,
+    focusTileY: 2,
+    viewMode: 'radar',
+    radarSpanTiles: 25,
+  });
+  assert.equal(topLeftRadar.startX, 0);
+  assert.equal(topLeftRadar.startY, 0);
+
+  const bottomRightRadar = computeMinimapViewport({
+    mazeWidth: 75,
+    mazeHeight: 75,
+    focusTileX: 73,
+    focusTileY: 74,
+    viewMode: 'radar',
+    radarSpanTiles: 25,
+  });
+  assert.equal(bottomRightRadar.startX, 50);
+  assert.equal(bottomRightRadar.startY, 50);
+
+  // 3. Clicking the center of a zoomed Radar viewport maps to the exact world coordinate of the focus tile
+  const worldCenter = minimapPixelToWorldCoord({
+    clickRatioX: 0.5,
+    clickRatioY: 0.5,
+    viewport: centerRadar,
+    tileSize: 32,
+    mazeWidth: 75,
+    mazeHeight: 75,
+  });
+  assert.equal(worldCenter.x, 40 * 32);
+  assert.equal(worldCenter.y, 30 * 32);
+
+  // 4. Objective compass points to nearest available key when exit is locked, and switches to Exit when open
+  const nearestKeyCompass = getNearestObjectiveCompass({
+    playerTileX: 10,
+    playerTileY: 10,
+    isDoorOpen: false,
+    exitTile: { x: 70, y: 70 },
+    availableKeys: [
+      { tileX: 50, tileY: 10 },
+      { tileX: 18, tileY: 10 },
+    ],
+  });
+  assert.ok(nearestKeyCompass);
+  assert.equal(nearestKeyCompass.kind, 'key');
+  assert.equal(nearestKeyCompass.distanceTiles, 8);
+  assert.equal(nearestKeyCompass.directionLabel, 'T');
+
+  const slightNorthEast = getNearestObjectiveCompass({
+    playerTileX: 10,
+    playerTileY: 10,
+    isDoorOpen: false,
+    exitTile: { x: 70, y: 70 },
+    availableKeys: [{ tileX: 25, tileY: 9 }],
+  });
+  assert.equal(slightNorthEast?.directionLabel, 'T');
+
+  const exitCompass = getNearestObjectiveCompass({
+    playerTileX: 20,
+    playerTileY: 20,
+    isDoorOpen: true,
+    exitTile: { x: 10, y: 10 },
+    availableKeys: [{ tileX: 22, tileY: 20 }],
+  });
+  assert.ok(exitCompass);
+  assert.equal(exitCompass.kind, 'exit');
+  assert.equal(exitCompass.directionLabel, 'BL');
+  assert.equal(exitCompass.distanceTiles, Math.round(Math.hypot(-10, -10)));
+});
+
+import {
+  buildProjectorBroadcastSummary,
+  computeFullMazeFitTransform,
+  formatProjectorClock,
+  selectProjectorFeedEvents,
+  worldPixelToProjectorPoint,
+} from './projectorMode';
+
+test('Projector / Classroom TV Big Screen View computes full-maze fit, urgency timer, and live podium order accurately', () => {
+  // 1. Aspect-preserving full-maze fit for 75x75 map inside 1000x760 stage with 20px padding
+  const fit = computeFullMazeFitTransform({
+    canvasWidth: 1000,
+    canvasHeight: 760,
+    mazeWidth: 75,
+    mazeHeight: 75,
+    paddingPx: 20,
+  });
+  assert.equal(fit.mapPixelH, 720);
+  assert.equal(fit.mapPixelW, 720);
+  assert.equal(fit.offsetX, 140);
+  assert.equal(fit.offsetY, 20);
+
+  // World center (37.5 tiles * 32px) maps cleanly to canvas center (500, 380)
+  const centerPt = worldPixelToProjectorPoint({
+    worldX: 37.5 * 32,
+    worldY: 37.5 * 32,
+    tileSize: 32,
+    transform: fit,
+  });
+  assert.equal(Math.round(centerPt.x), 500);
+  assert.equal(Math.round(centerPt.y), 380);
+
+  // 2. Classroom timer formatting & urgency tiers
+  assert.deepEqual(formatProjectorClock(185), { formatted: '03:05', urgency: 'normal' });
+  assert.deepEqual(formatProjectorClock(55), { formatted: '00:55', urgency: 'warning' });
+  assert.deepEqual(formatProjectorClock(24), { formatted: '00:24', urgency: 'critical' });
+
+  // 3. Broadcast summary builds #2 | #1 | #3 championship podium order and live counts
+  const lb = buildIndividualLeaderboard([
+    {
+      playerId: 's1',
+      name: 'Budi',
+      characterId: 'knight',
+      outfitColor: '#2563EB',
+      teamId: null,
+      score: 900,
+      keysCollected: 5,
+      correctAnswers: 5,
+      wrongAnswers: 0,
+      lives: 3,
+      status: 'escaped',
+      completionTimeSeconds: 95,
+    },
+    {
+      playerId: 's2',
+      name: 'Citra',
+      characterId: 'mage',
+      outfitColor: '#7C3AED',
+      teamId: null,
+      score: 650,
+      keysCollected: 4,
+      correctAnswers: 4,
+      wrongAnswers: 1,
+      lives: 2,
+      status: 'active',
+      completionTimeSeconds: null,
+    },
+    {
+      playerId: 's3',
+      name: 'Dani',
+      characterId: 'ranger',
+      outfitColor: '#16A34A',
+      teamId: null,
+      score: 400,
+      keysCollected: 2,
+      correctAnswers: 2,
+      wrongAnswers: 1,
+      lives: 2,
+      status: 'active',
+      completionTimeSeconds: null,
+    },
+    {
+      playerId: 's4',
+      name: 'Eka',
+      characterId: 'paladin',
+      outfitColor: '#D97706',
+      teamId: null,
+      score: 150,
+      keysCollected: 1,
+      correctAnswers: 1,
+      wrongAnswers: 0,
+      lives: 3,
+      status: 'active',
+      completionTimeSeconds: null,
+    },
+  ]);
+
+  const summary = buildProjectorBroadcastSummary({
+    players: [
+      { id: 't1', role: 'teacher', status: 'spectator', keysCollected: 0 },
+      { id: 's1', role: 'student', status: 'escaped', animState: 'idle', keysCollected: 5 },
+      { id: 's2', role: 'student', status: 'active', animState: 'answering', keysCollected: 4 },
+      { id: 's3', role: 'student', status: 'active', animState: 'walk', keysCollected: 2 },
+      { id: 's4', role: 'student', status: 'active', animState: 'idle', keysCollected: 1 },
+    ],
+    leaderboard: lb,
+    teamLeaderboard: [],
+    mode: 'coop',
+    sharedKeysCollected: 5,
+    teamKeysCollected: { red: 0, blue: 0, green: 0, yellow: 0, purple: 0 },
+    targetKeys: 5,
+  });
+
+  assert.equal(summary.totalStudents, 4);
+  assert.equal(summary.activeStudents, 3);
+  assert.equal(summary.escapedStudents, 1);
+  assert.equal(summary.answeringStudents, 1);
+  assert.equal(summary.isExitOpenForClass, true);
+  assert.equal(summary.keyProgressPercent, 100);
+  // Classic stepped order: left=#2 (Citra), center=#1 (Budi), right=#3 (Dani)
+  assert.equal(summary.podiumSlots[0].place, 2);
+  assert.equal(summary.podiumSlots[0].entry?.name, 'Citra');
+  assert.equal(summary.podiumSlots[1].place, 1);
+  assert.equal(summary.podiumSlots[1].entry?.name, 'Budi');
+  assert.equal(summary.podiumSlots[2].place, 3);
+  assert.equal(summary.podiumSlots[2].entry?.name, 'Dani');
+  assert.equal(summary.runnerUps.length, 1);
+  assert.equal(summary.runnerUps[0].name, 'Eka');
+
+  // 4. Ticker event selector returns latest events newest-first
+  const feed = selectProjectorFeedEvents(
+    [
+      { id: '1', senderName: 'Sistem', text: 'Mulai!', type: 'system', timestamp: 1 },
+      { id: '2', senderName: 'Budi', text: 'Dapat kunci!', type: 'chat', timestamp: 2 },
+      { id: '3', senderName: 'Citra', text: 'Menuju exit!', type: 'chat', timestamp: 3 },
+    ],
+    2
+  );
+  assert.equal(feed.length, 2);
+  assert.equal(feed[0].id, '3');
+  assert.equal(feed[1].id, '2');
+});
+
+import {
+  DEFAULT_MAZE_BIOME,
+  MAZE_BIOME_LIST,
+  MAZE_BIOMES,
+  getMazeBiomeTheme,
+  normalizeMazeBiome,
+} from './biomeThemes';
+
+test('Maze Biome Themes provide 4 distinct visual palettes with safe normalization', () => {
+  assert.equal(DEFAULT_MAZE_BIOME, 'stone_dungeon');
+  assert.equal(MAZE_BIOME_LIST.length, 4);
+
+  const ids = MAZE_BIOME_LIST.map((b) => b.id);
+  assert.deepEqual(ids, ['stone_dungeon', 'crystal_forest', 'desert_temple', 'ice_fortress']);
+
+  // Every biome has a distinct wall & floor palette and valid 4-color swatch preview
+  const wallColors = new Set(MAZE_BIOME_LIST.map((b) => b.tiles.wallUpperA));
+  const floorColors = new Set(MAZE_BIOME_LIST.map((b) => b.tiles.floorSlabA));
+  const projectorWalls = new Set(MAZE_BIOME_LIST.map((b) => b.projector.wallBase));
+  assert.equal(wallColors.size, 4, 'All 4 biomes must have distinct wall colors');
+  assert.equal(floorColors.size, 4, 'All 4 biomes must have distinct floor colors');
+  assert.equal(projectorWalls.size, 4, 'All 4 biomes must have distinct projector wall tints');
+
+  for (const b of MAZE_BIOME_LIST) {
+    assert.equal(b.swatchColors.length, 4);
+    assert.ok(b.name.length > 0);
+    assert.ok(b.tagline.length > 0);
+    assert.equal(MAZE_BIOMES[b.id].name, b.name);
+  }
+
+  assert.equal(normalizeMazeBiome('crystal_forest'), 'crystal_forest');
+  assert.equal(normalizeMazeBiome('desert_temple'), 'desert_temple');
+  assert.equal(normalizeMazeBiome('ice_fortress'), 'ice_fortress');
+  assert.equal(normalizeMazeBiome('unknown_biome'), 'stone_dungeon');
+  assert.equal(normalizeMazeBiome(undefined), 'stone_dungeon');
+  assert.equal(getMazeBiomeTheme('desert_temple').name, 'Kuil Gurun Pasir');
+  assert.equal(getMazeBiomeTheme('invalid').id, 'stone_dungeon');
+});
+
+import QRCode from 'qrcode';
+import {
+  buildRoomJoinUrl,
+  extractRoomCodeFromSearch,
+  formatDisplayJoinHost,
+} from './roomJoinLink';
+
+test('QR Code Room Join links normalize codes, extract ?room= params, and render valid scannable PNG QR data', async () => {
+  // 1. Builds canonical join URL with normalized MATH-XXXX code and clean trailing slash handling
+  assert.equal(
+    buildRoomJoinUrl('https://kelas.mathmaze.app/', '4821'),
+    'https://kelas.mathmaze.app/?room=MATH-4821'
+  );
+  assert.equal(
+    buildRoomJoinUrl('http://localhost:3000', 'math-9012'),
+    'http://localhost:3000/?room=MATH-9012'
+  );
+  assert.equal(buildRoomJoinUrl('', '7744'), '/?room=MATH-7744');
+
+  // 2. Extracts and normalizes ?room= query params cleanly
+  assert.equal(extractRoomCodeFromSearch('?room=MATH-4821'), 'MATH-4821');
+  assert.equal(extractRoomCodeFromSearch('?foo=1&room=5532'), 'MATH-5532');
+  assert.equal(extractRoomCodeFromSearch('?room=   '), null);
+  assert.equal(extractRoomCodeFromSearch(''), null);
+
+  // 3. Formats human-readable host + query for modal display
+  assert.equal(
+    formatDisplayJoinHost('https://kelas.mathmaze.app/?room=MATH-4821'),
+    'kelas.mathmaze.app/?room=MATH-4821'
+  );
+
+  // 4. Generates real ISO/IEC 18004 PNG data URL for the room join link
+  const joinUrl = buildRoomJoinUrl('http://localhost:3000', 'MATH-4821');
+  const dataUrl = await QRCode.toDataURL(joinUrl, {
+    errorCorrectionLevel: 'M',
+    margin: 2,
+    width: 240,
+  });
+  assert.ok(dataUrl.startsWith('data:image/png;base64,'), 'QR data URL must be a valid PNG base64 URI');
+  assert.ok(dataUrl.length > 400, 'QR PNG payload must contain non-trivial encoded bitmap data');
+});
+
+
 
 
 

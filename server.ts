@@ -20,6 +20,7 @@ import {
   normalizeRoomCode,
 } from './src/shared/constants';
 import { generateProceduralMaze, isWalkableTile } from './src/shared/mazeGenerator';
+import { createVictoryLobbyMaze } from './src/shared/victoryLobbyMap';
 import { pickQuestionForRoom, PublicMathQuestion } from './src/shared/questionGenerator';
 import { calculatePlayerScore } from './src/shared/scoreSystem';
 import { db } from './src/server/database';
@@ -34,6 +35,7 @@ import {
   sanitizeRoomSettings,
 } from './src/server/roomManager';
 import { resolveSubmittedAnswer, SubmitAnswerAck } from './src/server/questionSubmission';
+import { EMOTE_BY_ID, EmoteId, isValidEmoteId } from './src/shared/emoteSystem';
 
 export type { ChatLogItem, GameRoom, ServerPlayer };
 
@@ -663,9 +665,9 @@ async function startServer() {
         animState: PlayerAnimState;
       }) => {
         const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
-        if (!room || room.status !== 'playing') return;
+        if (!room || (room.status !== 'playing' && room.status !== 'ended')) return;
         const player = room.players.get(payload?.playerId || currentPlayerId || '');
-        if (!player || player.status !== 'active') return;
+        if (!player || (player.status !== 'active' && player.status !== 'escaped')) return;
 
         if (player.activeQuestion) {
           const maxHoldMs = (room.settings.questionTimerSeconds + 15) * 1000;
@@ -680,18 +682,33 @@ async function startServer() {
         if (now - player.lastMoveAt < 35) return;
         player.lastMoveAt = now;
 
-        const maxCoordX = room.maze.width * GAME_RULES.TILE_SIZE;
-        const maxCoordY = room.maze.height * GAME_RULES.TILE_SIZE;
+        const targetMaze =
+          player.status === 'escaped' || room.status === 'ended'
+            ? createVictoryLobbyMaze()
+            : room.maze;
+
+        const maxCoordX = targetMaze.width * GAME_RULES.TILE_SIZE;
+        const maxCoordY = targetMaze.height * GAME_RULES.TILE_SIZE;
         const clampedX = Math.max(16, Math.min(maxCoordX - 16, Number(payload.x) || player.x));
         const clampedY = Math.max(16, Math.min(maxCoordY - 16, Number(payload.y) || player.y));
 
         const tileX = Math.floor(clampedX / GAME_RULES.TILE_SIZE);
         const tileY = Math.floor(clampedY / GAME_RULES.TILE_SIZE);
-        const targetTile = room.maze.grid[tileY]?.[tileX];
+        const targetTile = targetMaze.grid[tileY]?.[tileX];
 
         if (targetTile !== undefined && isWalkableTile(targetTile)) {
           player.x = clampedX;
           player.y = clampedY;
+          if (player.status === 'active' && room.status === 'playing') {
+            if (!player.visitedTiles) {
+              player.visitedTiles = new Set<number>();
+            }
+            const tileIdx = tileY * room.maze.width + tileX;
+            if (!player.visitedTiles.has(tileIdx)) {
+              player.visitedTiles.add(tileIdx);
+              player.tilesExploredCount = (player.tilesExploredCount ?? 12) + 4;
+            }
+          }
         }
         player.direction = payload.direction || player.direction;
         player.animState = payload.animState || 'walk';
@@ -849,6 +866,11 @@ async function startServer() {
         if (!canExit) return;
 
         player.status = 'escaped';
+        const lobbyMaze = createVictoryLobbyMaze();
+        player.x = lobbyMaze.spawnTile.x * GAME_RULES.TILE_SIZE + 16;
+        player.y = lobbyMaze.spawnTile.y * GAME_RULES.TILE_SIZE + 16;
+        player.direction = 'up';
+        player.animState = 'idle';
         player.completionTimeSeconds = Math.max(
           1,
           room.settings.durationSeconds - room.remainingSeconds
@@ -864,7 +886,7 @@ async function startServer() {
         addSystemChat(
           room,
           io,
-          `${player.name} berhasil mencapai Pintu Keluar! (+${GAME_RULES.LEVEL_COMPLETION_POINTS} Poin Bonus)`
+          `${player.name} berhasil keluar dari Dungeon dan memasuki Lobby Pemenang! (+${GAME_RULES.LEVEL_COMPLETION_POINTS} Poin Bonus)`
         );
 
         const students = Array.from(room.players.values()).filter((p) => p.role === 'student');
@@ -944,6 +966,44 @@ async function startServer() {
       }
     );
 
+    // 12b. OVERHEAD PIXEL EMOTE REACTIONS (Dungeon & Victory Lobby)
+    socket.on(
+      SOCKET_EVENTS.PLAYER_EMOTE,
+      (payload: { roomCode?: string; playerId?: string; emoteId: EmoteId }) => {
+        const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
+        if (!room) return;
+        const player = room.players.get(payload?.playerId || currentPlayerId || '');
+        if (!player || !isValidEmoteId(payload?.emoteId)) return;
+
+        const now = Date.now();
+        const emoteDef = EMOTE_BY_ID[payload.emoteId];
+
+        io.to(room.code).emit(SOCKET_EVENTS.PLAYER_EMOTE, {
+          id: `emote-${now}-${Math.floor(Math.random() * 1000)}`,
+          playerId: player.id,
+          playerName: player.name,
+          emoteId: emoteDef.id,
+          timestamp: now,
+        });
+
+        if (now - player.lastChatAt >= 450) {
+          player.lastChatAt = now;
+          const chatItem: ChatLogItem = {
+            id: `chat-${now}-${Math.floor(Math.random() * 1000)}`,
+            senderId: player.id,
+            senderName: player.name,
+            teamId: player.teamId ?? null,
+            text: emoteDef.chatText,
+            type: 'emoji',
+            timestamp: now,
+          };
+          room.chatHistory.push(chatItem);
+          if (room.chatHistory.length > 60) room.chatHistory.shift();
+          io.to(room.code).emit(SOCKET_EVENTS.CHAT_MESSAGE, chatItem);
+        }
+      }
+    );
+
     // 13. DISCONNECT HANDLING (Preserve room & player state for reconnection)
     socket.on('disconnect', () => {
       const room = roomManager.markPlayerDisconnected(currentRoomCode, currentPlayerId, socket.id);
@@ -956,7 +1016,9 @@ async function startServer() {
   // ==================== SERVER GAME LOOP (DELTA SYNC + TIMER) ====================
   setInterval(() => {
     for (const room of rooms.values()) {
-      if (room.status !== 'playing') continue;
+      if (room.status !== 'playing' && room.status !== 'ended') continue;
+      const hasConnected = Array.from(room.players.values()).some((p) => p.connected);
+      if (!hasConnected) continue;
       const deltaPlayers: {
         id: string;
         x: number;

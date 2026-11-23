@@ -3,9 +3,11 @@ import {
   Direction,
   KEY_TYPES_INFO,
   KeyType,
+  MazeBiomeId,
   PlayerAnimState,
   TileType,
 } from '../../shared/constants';
+import { DEFAULT_MAZE_BIOME, getMazeBiomeTheme } from '../../shared/biomeThemes';
 
 const tileCache = new Map<string, HTMLCanvasElement>();
 const characterSpriteCache = new Map<string, HTMLCanvasElement>();
@@ -54,7 +56,12 @@ export function shadeHexColor(hex: string, percent: number): string {
   return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1).toUpperCase()}`;
 }
 
-export function getTileSprite(tile: TileType, frame = 0): HTMLCanvasElement {
+export function getTileSprite(
+  tile: TileType,
+  frame = 0,
+  variant = 0,
+  biome: MazeBiomeId = DEFAULT_MAZE_BIOME
+): HTMLCanvasElement {
   const animFrame =
     tile === TileType.TORCH_WALL ||
     tile === TileType.CRYSTAL_DECOR ||
@@ -62,168 +69,456 @@ export function getTileSprite(tile: TileType, frame = 0): HTMLCanvasElement {
     tile === TileType.PORTAL_SPAWN
       ? frame % 4
       : 0;
-  const key = `${tile}:${animFrame}`;
+  const tileVariant = Math.abs(variant) % 4;
+  const theme = getMazeBiomeTheme(biome);
+  const t = theme.tiles;
+  const key = `v4:${theme.id}:${tile}:${animFrame}:${tileVariant}`;
   const cached = tileCache.get(key);
   if (cached) return cached;
 
   const { canvas, ctx } = createPixelCanvas(32, 32);
 
-  // Base floor for non-wall tiles
+  // Base floor for non-wall tiles (Rich 32x32 16-bit Biome Paving & Secret Sanctum Floor)
   if (tile !== TileType.WALL && tile !== TileType.TORCH_WALL) {
     const isSecret =
       tile === TileType.SECRET_FLOOR ||
       tile === TileType.CHEST_DECOR ||
       tile === TileType.CRYSTAL_DECOR;
-    px(ctx, 0, 0, isSecret ? '#29223A' : '#1E2430', 16, 16);
-    // Cobblestone grid texture
-    px(ctx, 0, 0, isSecret ? '#352B4B' : '#262E3D', 15, 7);
-    px(ctx, 0, 8, isSecret ? '#312746' : '#232B38', 7, 7);
-    px(ctx, 8, 8, isSecret ? '#352B4B' : '#262E3D', 7, 7);
-    // Subtle stone highlights & mortar specks
-    px(ctx, 1, 1, isSecret ? '#4C3D6B' : '#313B4E', 4, 1);
-    px(ctx, 9, 9, isSecret ? '#4C3D6B' : '#313B4E', 4, 1);
-    px(ctx, 3, 12, '#171C26', 2, 1);
+
+    if (isSecret) {
+      // Biome Secret Chamber / Sanctum Floor
+      p1(ctx, 0, 0, t.secretOuter, 32, 32);
+      p1(ctx, 1, 1, t.secretFrameMid, 30, 30);
+      p1(ctx, 2, 2, t.secretFrameLight, 28, 28);
+      p1(ctx, 4, 4, tileVariant % 2 === 0 ? t.secretCarpetEven : t.secretCarpetOdd, 24, 24);
+      p1(ctx, 5, 5, tileVariant % 2 === 0 ? t.secretInnerEven : t.secretInnerOdd, 22, 22);
+      // Ornate filigree border
+      p1(ctx, 3, 3, t.secretTrimLight, 26, 1);
+      p1(ctx, 3, 28, t.secretTrimDark, 26, 1);
+      p1(ctx, 3, 3, t.secretTrimLight, 1, 26);
+      p1(ctx, 28, 3, t.secretTrimDark, 1, 26);
+      // Corner studs
+      p1(ctx, 3, 3, t.secretStud, 2, 2);
+      p1(ctx, 27, 3, t.secretStud, 2, 2);
+      p1(ctx, 3, 27, t.secretStud, 2, 2);
+      p1(ctx, 27, 27, t.secretStud, 2, 2);
+      // Center geometric diamond motif
+      p1(ctx, 15, 13, t.secretMotif, 2, 6);
+      p1(ctx, 13, 15, t.secretMotif, 6, 2);
+      if (tileVariant === 1 || tileVariant === 3) {
+        p1(ctx, 15, 15, t.secretCenterGem, 2, 2);
+      }
+    } else {
+      // Biome Corridor Paving: 32x32 16-bit Sculpted Flagstone Slabs with 4 Seamless Variants
+      p1(ctx, 0, 0, t.floorMortar, 32, 32);
+
+      // Top-left slab (14x14)
+      const tlBase = tileVariant === 1 ? t.floorSlabB : t.floorSlabA;
+      p1(ctx, 1, 1, tlBase, 14, 14);
+      p1(ctx, 1, 1, t.floorBevelLight, 13, 1);
+      p1(ctx, 1, 2, t.floorBevelLight, 1, 12);
+      p1(ctx, 2, 14, t.floorBevelShadow, 13, 1);
+      p1(ctx, 14, 2, t.floorBevelShadow, 1, 13);
+
+      // Top-right slab (15x14)
+      const trBase = tileVariant === 2 ? t.floorSlabB : t.floorSlabC;
+      p1(ctx, 16, 1, trBase, 15, 14);
+      p1(ctx, 16, 1, t.floorBevelLightAlt, 14, 1);
+      p1(ctx, 16, 2, t.floorBevelLightAlt, 1, 12);
+      p1(ctx, 17, 14, t.floorBevelShadow, 14, 1);
+
+      // Bottom-left slab (9x15)
+      p1(ctx, 1, 16, t.floorSlabD, 9, 15);
+      p1(ctx, 1, 16, t.floorBevelLight, 8, 1);
+      p1(ctx, 1, 17, t.floorBevelLight, 1, 13);
+      p1(ctx, 2, 30, t.floorBevelShadow, 8, 1);
+
+      // Bottom-right wide slab (20x15)
+      const brBase = tileVariant === 3 ? t.floorSlabB : t.floorSlabA;
+      p1(ctx, 11, 16, brBase, 20, 15);
+      p1(ctx, 11, 16, t.floorBevelLight, 19, 1);
+      p1(ctx, 11, 17, t.floorBevelLight, 1, 13);
+      p1(ctx, 12, 30, t.floorBevelShadow, 19, 1);
+
+      // Biome & variant-specific architectural floor details
+      if (theme.id === 'crystal_forest') {
+        if (tileVariant === 0) {
+          // Soft emerald moss tuft in mortar seam
+          p1(ctx, 14, 14, '#15803D', 3, 2);
+          p1(ctx, 15, 13, '#4ADE80', 2, 1);
+        } else if (tileVariant === 1) {
+          // Tiny glowing teal crystal shard in floor crevice
+          p1(ctx, 6, 7, '#0F766E', 3, 2);
+          p1(ctx, 7, 6, t.floorAccent1, 2, 2);
+          p1(ctx, 22, 21, t.floorAccent2, 2, 2);
+        } else if (tileVariant === 2) {
+          // Bioluminescent spore specks
+          p1(ctx, 19, 6, t.floorAccent1, 2, 1);
+          p1(ctx, 13, 24, '#22C55E', 3, 2);
+          p1(ctx, 14, 23, '#86EFAC', 1, 1);
+        } else {
+          // Root vine across bottom stone
+          p1(ctx, 16, 22, '#14532D', 7, 2);
+          p1(ctx, 17, 21, '#22C55E', 4, 1);
+        }
+      } else if (theme.id === 'desert_temple') {
+        if (tileVariant === 0) {
+          // Wind-blown golden sand drift
+          p1(ctx, 4, 12, '#D9A760', 6, 2);
+          p1(ctx, 6, 11, '#FDE68A', 3, 1);
+          p1(ctx, 20, 26, '#C28F4A', 7, 2);
+        } else if (tileVariant === 1) {
+          // Carved turquoise scarab inlay
+          p1(ctx, 19, 21, '#92400E', 4, 4);
+          p1(ctx, 20, 22, t.floorAccent2, 2, 2);
+        } else if (tileVariant === 2) {
+          // Sun-baked sandstone hairline crack
+          p1(ctx, 19, 5, t.floorDetailDark, 1, 4);
+          p1(ctx, 20, 8, t.floorDetailDark, 3, 1);
+          p1(ctx, 5, 22, '#D9A760', 3, 1);
+        } else {
+          // Ancient gold floor glyph
+          p1(ctx, 18, 21, '#B45309', 5, 3);
+          p1(ctx, 19, 22, '#FACC15', 3, 1);
+        }
+      } else if (theme.id === 'ice_fortress') {
+        if (tileVariant === 0) {
+          // Specular glacier ice sheen diagonal
+          p1(ctx, 4, 5, '#7DD3FC', 4, 1);
+          p1(ctx, 5, 6, '#BAE6FD', 3, 1);
+          p1(ctx, 21, 22, '#7DD3FC', 5, 1);
+        } else if (tileVariant === 1) {
+          // Frosted snow-crystal flake
+          p1(ctx, 7, 6, '#E0F2FE', 1, 3);
+          p1(ctx, 6, 7, '#E0F2FE', 3, 1);
+          p1(ctx, 22, 21, '#7DD3FC', 2, 2);
+        } else if (tileVariant === 2) {
+          // Deep glacial ice fissure
+          p1(ctx, 19, 4, '#0C1E2E', 1, 5);
+          p1(ctx, 20, 8, '#0C1E2E', 3, 1);
+          p1(ctx, 20, 7, '#BAE6FD', 2, 1);
+        } else {
+          // Shimmering prism frost glint
+          p1(ctx, 19, 21, '#38BDF8', 3, 3);
+          p1(ctx, 20, 22, '#FFFFFF', 1, 1);
+        }
+      } else {
+        // Classic Stone Dungeon details
+        if (tileVariant === 0) {
+          p1(ctx, 5, 6, t.floorDetailDark, 3, 1);
+          p1(ctx, 21, 22, t.floorDetailDark, 4, 1);
+          p1(ctx, 22, 23, t.floorBevelLight, 3, 1);
+        } else if (tileVariant === 1) {
+          p1(ctx, 7, 7, '#3B4252', 2, 2);
+          p1(ctx, 15, 15, t.floorAccent1, 2, 2);
+          p1(ctx, 16, 14, '#22C55E', 1, 1);
+        } else if (tileVariant === 2) {
+          p1(ctx, 19, 5, t.floorDetailDark, 1, 3);
+          p1(ctx, 20, 7, t.floorDetailDark, 2, 1);
+          p1(ctx, 15, 24, t.floorBevelLight, 4, 1);
+        } else {
+          p1(ctx, 20, 22, '#78350F', 3, 3);
+          p1(ctx, 21, 23, t.floorAccent2, 1, 1);
+        }
+      }
+    }
   }
 
   switch (tile) {
     case TileType.WALL:
     case TileType.TORCH_WALL: {
-      // 16-bit RPG Stone Brick Wall
-      px(ctx, 0, 0, '#0F141D', 16, 16); // Dark mortar base
-      // Top bevel highlight
-      px(ctx, 0, 0, '#475569', 7, 3);
-      px(ctx, 8, 0, '#475569', 7, 3);
-      px(ctx, 1, 0, '#64748B', 5, 1);
-      px(ctx, 9, 0, '#64748B', 5, 1);
-      // Middle brick course
-      px(ctx, 0, 4, '#334155', 3, 4);
-      px(ctx, 4, 4, '#3B495E', 7, 4);
-      px(ctx, 12, 4, '#334155', 4, 4);
-      px(ctx, 5, 4, '#475569', 5, 1);
-      // Lower brick course
-      px(ctx, 0, 9, '#283344', 7, 4);
-      px(ctx, 8, 9, '#2D3A4D', 7, 4);
-      // Deep bottom shadow edge
-      px(ctx, 0, 14, '#090D14', 16, 2);
-      // Subtle moss pixel
-      px(ctx, 2, 12, '#15803D', 2, 1);
+      // 32x32 2.5D 16-bit Biome Wall Masonry (Cornice Cap + Sculpted Blocks + Base Plinth)
+      p1(ctx, 0, 0, t.wallMortar, 32, 32);
+
+      // 1. Top Roof Cornice Cap (y: 0..6)
+      p1(ctx, 0, 0, t.wallCorniceTop, 32, 2);
+      p1(ctx, 1, 2, t.wallCorniceBody, 14, 4);
+      p1(ctx, 16, 2, t.wallCorniceBody, 15, 4);
+      p1(ctx, 2, 2, t.wallCorniceHighlight, 12, 1);
+      p1(ctx, 17, 2, t.wallCorniceHighlight, 13, 1);
+      p1(ctx, 0, 6, t.wallCorniceShadow, 32, 1);
+
+      // 2. Upper Brick Course (y: 7..14)
+      p1(ctx, 1, 7, t.wallUpperA, 9, 7);
+      p1(ctx, 2, 7, t.wallUpperHiA, 7, 1);
+      p1(ctx, 11, 7, t.wallUpperB, 11, 7);
+      p1(ctx, 12, 7, t.wallUpperHiB, 9, 1);
+      p1(ctx, 23, 7, t.wallUpperA, 8, 7);
+      p1(ctx, 24, 7, t.wallUpperHiA, 6, 1);
+
+      // 3. Middle Brick Course (y: 15..22)
+      p1(ctx, 1, 15, t.wallMidA, 14, 7);
+      p1(ctx, 2, 15, t.wallMidHi, 12, 1);
+      p1(ctx, 16, 15, t.wallMidB, 15, 7);
+      p1(ctx, 17, 15, t.wallUpperHiB, 13, 1);
+
+      // 4. Lower Base Plinth Course (y: 23..28)
+      p1(ctx, 1, 23, t.wallPlinthA, 8, 5);
+      p1(ctx, 10, 23, t.wallPlinthB, 12, 5);
+      p1(ctx, 23, 23, t.wallPlinthA, 8, 5);
+      p1(ctx, 2, 23, t.wallPlinthHi, 6, 1);
+      p1(ctx, 11, 23, t.wallPlinthHi, 10, 1);
+
+      // 5. Deep Ground Occlusion Shadow (y: 29..31)
+      p1(ctx, 0, 29, t.wallGroundShadow, 32, 3);
+
+      // Biome-specific signature wall architecture (makes every biome unmistakable at a glance)
+      if (theme.id === 'crystal_forest') {
+        // Hanging emerald moss overhang on top cornice
+        p1(ctx, 3, 5, '#16A34A', 5, 2);
+        p1(ctx, 4, 7, '#15803D', 3, 2);
+        p1(ctx, 22, 5, '#22C55E', 6, 2);
+        p1(ctx, 24, 7, '#16A34A', 3, 3);
+        if (tile === TileType.WALL && (tileVariant === 1 || tileVariant === 3)) {
+          // Embedded glowing amethyst/cyan crystal cluster protruding from mossy wall
+          p1(ctx, 6, 16, t.wallOrnamentDark, 5, 7);
+          p1(ctx, 7, 14, t.wallOrnamentMid, 3, 8);
+          p1(ctx, 8, 15, t.wallOrnamentBright, 1, 5);
+          p1(ctx, 22, 18, '#0F766E', 4, 6);
+          p1(ctx, 23, 17, '#2DD4BF', 2, 5);
+        } else if (tile === TileType.WALL && tileVariant === 2) {
+          // Creeping vine & bioluminescent buds
+          p1(ctx, 13, 8, '#15803D', 2, 16);
+          p1(ctx, 12, 12, '#4ADE80', 4, 2);
+          p1(ctx, 14, 18, '#5EEAD4', 2, 2);
+        }
+      } else if (theme.id === 'desert_temple') {
+        // Golden temple frieze stripe under cornice
+        p1(ctx, 1, 6, '#B45309', 30, 1);
+        p1(ctx, 3, 6, '#FACC15', 4, 1);
+        p1(ctx, 14, 6, '#FACC15', 4, 1);
+        p1(ctx, 25, 6, '#FACC15', 4, 1);
+        if (tile === TileType.WALL && (tileVariant === 1 || tileVariant === 2)) {
+          // Carved turquoise & gold pharaoh hieroglyph band
+          p1(ctx, 3, 17, '#5C3919', 26, 4);
+          p1(ctx, 5, 18, t.wallOrnamentBright, 3, 2);
+          p1(ctx, 10, 18, t.wallOrnamentMid, 4, 2);
+          p1(ctx, 16, 18, t.wallOrnamentBright, 2, 2);
+          p1(ctx, 20, 18, t.wallOrnamentMid, 4, 2);
+          p1(ctx, 26, 18, t.wallOrnamentBright, 2, 2);
+        } else if (tile === TileType.WALL && tileVariant === 3) {
+          // Sun-weathered sandstone notch
+          p1(ctx, 15, 9, t.wallMortar, 2, 5);
+          p1(ctx, 24, 24, '#D9A760', 5, 3);
+        }
+      } else if (theme.id === 'ice_fortress') {
+        // Hanging translucent glacial icicles along the cornice lip!
+        p1(ctx, 4, 6, '#BAE6FD', 2, 4);
+        p1(ctx, 4, 10, '#E0F2FE', 1, 2);
+        p1(ctx, 15, 6, '#E0F2FE', 3, 3);
+        p1(ctx, 16, 9, '#7DD3FC', 1, 3);
+        p1(ctx, 26, 6, '#BAE6FD', 2, 5);
+        p1(ctx, 27, 11, '#FFFFFF', 1, 2);
+        if (tile === TileType.WALL && (tileVariant === 1 || tileVariant === 2)) {
+          // Diagonal frost refraction sheen across glacial bricks
+          p1(ctx, 5, 16, '#7DD3FC', 5, 1);
+          p1(ctx, 6, 17, '#E0F2FE', 4, 1);
+          p1(ctx, 19, 18, '#7DD3FC', 6, 1);
+          p1(ctx, 20, 19, '#BAE6FD', 4, 1);
+        }
+      } else {
+        // Classic Stone Dungeon variant wall details
+        if (tileVariant === 1 && tile === TileType.WALL) {
+          p1(ctx, 3, 25, t.wallOrnamentDark, 4, 3);
+          p1(ctx, 4, 24, t.wallOrnamentMid, 3, 2);
+          p1(ctx, 5, 23, t.wallOrnamentBright, 1, 1);
+        } else if (tileVariant === 2 && tile === TileType.WALL) {
+          p1(ctx, 4, 18, '#78350F', 8, 2);
+          p1(ctx, 5, 18, '#D97706', 6, 1);
+          p1(ctx, 19, 18, '#78350F', 8, 2);
+          p1(ctx, 20, 18, '#D97706', 6, 1);
+        } else if (tileVariant === 3 && tile === TileType.WALL) {
+          p1(ctx, 14, 9, '#0F172A', 1, 5);
+          p1(ctx, 15, 12, '#0F172A', 2, 1);
+        }
+      }
 
       if (tile === TileType.TORCH_WALL) {
-        // Iron wall sconce
-        px(ctx, 7, 9, '#1E293B', 2, 4);
-        px(ctx, 6, 8, '#78350F', 4, 2);
-        // Animated flickering flame
-        const flameOffset = animFrame % 2;
-        px(ctx, 6, 4 + flameOffset, '#EA580C', 4, 4);
-        px(ctx, 7, 3 + flameOffset, '#FACC15', 2, 4);
-        px(ctx, 7, 5, '#FEF08A', 2, 2);
-        if (animFrame === 1 || animFrame === 3) {
-          px(ctx, 6, 2, '#F97316', 1, 1);
-          px(ctx, 9, 3, '#FACC15', 1, 1);
+        // Biome Wall Light Fixture (Torch / Crystal Lantern / Solar Brazier / Frost Lantern)
+        p1(ctx, 13, 18, t.sconceDark, 6, 9);
+        p1(ctx, 14, 19, t.sconceBody, 4, 7);
+        p1(ctx, 12, 16, t.sconceBracketDark, 8, 3);
+        p1(ctx, 13, 16, t.sconceBracketBright, 6, 2);
+
+        // Multi-layered flickering flame or pulsing crystal/frost light
+        const shiftX = animFrame === 1 ? -1 : animFrame === 3 ? 1 : 0;
+        const stretchY = animFrame % 2 === 0 ? 0 : -1;
+        p1(ctx, 12 + shiftX, 8 + stretchY, t.flameOuter, 8, 8);
+        p1(ctx, 13 + shiftX, 6 + stretchY, t.flameMid, 6, 9);
+        p1(ctx, 14 + shiftX, 7 + stretchY, t.flameInner, 4, 7);
+        p1(ctx, 15, 10, t.flameCore, 2, 4);
+        p1(ctx, 15, 11, '#FFFFFF', 2, 2);
+
+        if (animFrame === 0 || animFrame === 2) {
+          p1(ctx, 12, 4, t.spark1, 2, 2);
+          p1(ctx, 18, 5, t.spark2, 1, 1);
+        } else {
+          p1(ctx, 14, 3, t.flameCore, 2, 2);
+          p1(ctx, 11, 6, t.spark1, 1, 1);
         }
       }
       break;
     }
 
     case TileType.CHEST_DECOR: {
-      // Pixel Art Treasure Chest
-      px(ctx, 3, 5, '#451A03', 10, 8);
-      px(ctx, 4, 6, '#92400E', 8, 6);
-      px(ctx, 4, 5, '#B45309', 8, 2);
-      // Gold trim & lock
-      px(ctx, 3, 8, '#FACC15', 10, 1);
-      px(ctx, 7, 7, '#FEF08A', 2, 3);
+      // 32x32 Ornate Royal Treasure Chest on Pedestal Mat
+      p1(ctx, 5, 9, '#090D16', 22, 16);
+      p1(ctx, 6, 10, '#78350F', 20, 6);
+      p1(ctx, 7, 11, '#B45309', 18, 4);
+      p1(ctx, 8, 11, '#D97706', 16, 2);
+      p1(ctx, 6, 17, '#451A03', 20, 7);
+      p1(ctx, 7, 18, '#92400E', 18, 5);
+      p1(ctx, 9, 10, '#FACC15', 2, 14);
+      p1(ctx, 21, 10, '#FACC15', 2, 14);
+      p1(ctx, 6, 15, '#F59E0B', 20, 2);
+      p1(ctx, 14, 14, '#FDE047', 4, 5);
+      p1(ctx, 15, 15, '#EF4444', 2, 3);
       break;
     }
 
     case TileType.CRYSTAL_DECOR: {
-      // Glowing Crystal Cluster
-      const glow = animFrame % 2 === 0 ? '#38BDF8' : '#7DD3FC';
-      px(ctx, 6, 3, '#0284C7', 4, 10);
-      px(ctx, 7, 2, glow, 2, 9);
-      px(ctx, 4, 6, '#0369A1', 3, 7);
-      px(ctx, 5, 7, glow, 1, 5);
-      px(ctx, 9, 5, '#0369A1', 3, 8);
-      px(ctx, 10, 6, glow, 1, 6);
+      // 32x32 Biome-Tuned Arcane Floating Crystal Cluster
+      const pulse = animFrame % 2 === 0;
+      const cMain = pulse ? t.crystalMainA : t.crystalMainB;
+      const cBright = pulse ? t.crystalBrightA : t.crystalBrightB;
+      p1(ctx, 7, 22, t.crystalBaseDark, 18, 6);
+      p1(ctx, 8, 23, t.crystalBaseLight, 16, 4);
+      p1(ctx, 8, 12, t.crystalSpireDark, 5, 11);
+      p1(ctx, 9, 13, cMain, 3, 9);
+      p1(ctx, 10, 14, cBright, 1, 6);
+      p1(ctx, 19, 11, t.crystalSpireDark, 5, 12);
+      p1(ctx, 20, 12, cMain, 3, 10);
+      p1(ctx, 21, 13, cBright, 1, 7);
+      p1(ctx, 13, 5, t.crystalSpireDark, 6, 19);
+      p1(ctx, 14, 6, cMain, 4, 17);
+      p1(ctx, 15, 7, cBright, 2, 14);
+      p1(ctx, 15, 8, '#FFFFFF', 1, 6);
+      if (pulse) {
+        p1(ctx, 6, 8, t.crystalSpark, 2, 2);
+        p1(ctx, 24, 7, cBright, 2, 2);
+      } else {
+        p1(ctx, 10, 4, cBright, 2, 2);
+        p1(ctx, 22, 10, t.crystalSpark, 2, 2);
+      }
       break;
     }
 
     case TileType.GRASS_DECOR: {
-      // Dungeon Foliage & Vines
-      px(ctx, 3, 10, '#15803D', 2, 3);
-      px(ctx, 4, 9, '#22C55E', 2, 2);
-      px(ctx, 10, 5, '#15803D', 3, 3);
-      px(ctx, 11, 4, '#4ADE80', 2, 2);
-      px(ctx, 7, 12, '#16A34A', 3, 2);
+      // Biome-Adapted Courtyard Flora (Ferns / Glowing Crystals / Desert Oasis Palms / Frost Blooms)
+      if (theme.id === 'desert_temple') {
+        p1(ctx, 4, 19, '#92400E', 10, 7);
+        p1(ctx, 5, 18, '#D97706', 8, 5);
+        p1(ctx, 7, 15, '#15803D', 4, 6);
+        p1(ctx, 8, 14, '#22C55E', 2, 4);
+        p1(ctx, 18, 9, '#92400E', 10, 7);
+        p1(ctx, 19, 8, '#F59E0B', 8, 5);
+        p1(ctx, 21, 6, '#16A34A', 4, 5);
+      } else if (theme.id === 'ice_fortress') {
+        p1(ctx, 4, 18, '#0284C7', 9, 8);
+        p1(ctx, 5, 17, '#38BDF8', 7, 6);
+        p1(ctx, 6, 16, '#E0F2FE', 4, 3);
+        p1(ctx, 18, 8, '#0284C7', 9, 8);
+        p1(ctx, 19, 7, '#7DD3FC', 7, 6);
+        p1(ctx, 20, 6, '#FFFFFF', 4, 3);
+      } else {
+        p1(ctx, 4, 18, '#14532D', 9, 8);
+        p1(ctx, 5, 17, '#16A34A', 7, 6);
+        p1(ctx, 6, 16, '#4ADE80', 4, 3);
+        p1(ctx, 18, 8, '#14532D', 9, 8);
+        p1(ctx, 19, 7, '#16A34A', 7, 6);
+        p1(ctx, 20, 6, '#4ADE80', 4, 3);
+        p1(ctx, 12, 22, '#15803D', 8, 5);
+        p1(ctx, 13, 21, '#22C55E', 6, 3);
+        p1(ctx, 7, 17, theme.id === 'crystal_forest' ? '#5EEAD4' : '#FACC15', 2, 2);
+        p1(ctx, 21, 8, theme.id === 'crystal_forest' ? '#E879F9' : '#F472B6', 2, 2);
+      }
       break;
     }
 
     case TileType.TRAP_DECOR: {
-      // Decorative Iron Spike Plate
-      px(ctx, 2, 2, '#111827', 12, 12);
-      px(ctx, 3, 3, '#374151', 10, 10);
-      const spikes = [
-        [4, 4],
-        [10, 4],
-        [7, 7],
-        [4, 10],
-        [10, 10],
-      ];
-      for (const [sx, sy] of spikes) {
-        px(ctx, sx, sy, '#9CA3AF', 2, 2);
-        px(ctx, sx, sy, '#F3F4F6', 1, 1);
-      }
+      // 32x32 Ornate Compass Rose & Floor Medallion (Walkable Landmark Mosaic)
+      p1(ctx, 4, 4, t.wallMortar, 24, 24);
+      p1(ctx, 5, 5, t.floorSlabB, 22, 22);
+      p1(ctx, 6, 6, t.secretTrimDark, 20, 20);
+      p1(ctx, 7, 7, t.floorSlabA, 18, 18);
+      p1(ctx, 15, 5, t.secretStud, 2, 22);
+      p1(ctx, 5, 15, t.secretStud, 22, 2);
+      p1(ctx, 10, 10, t.secretTrimLight, 12, 12);
+      p1(ctx, 11, 11, t.floorSlabB, 10, 10);
+      p1(ctx, 13, 13, t.secretTrimLight, 6, 6);
+      p1(ctx, 14, 14, theme.accentHex, 4, 4);
+      p1(ctx, 15, 15, '#FFFFFF', 2, 2);
       break;
     }
 
     case TileType.WOOD_DOOR: {
-      // Wooden Dungeon Archway (Walkable)
-      px(ctx, 0, 0, '#451A03', 3, 16);
-      px(ctx, 13, 0, '#451A03', 3, 16);
-      px(ctx, 1, 1, '#78350F', 2, 14);
-      px(ctx, 13, 1, '#78350F', 2, 14);
-      px(ctx, 0, 0, '#92400E', 16, 2);
+      // 32x32 Biome-Styled Threshold Archway (Walkable Room Entrance)
+      p1(ctx, 0, 0, t.doorDark, 6, 32);
+      p1(ctx, 26, 0, t.doorDark, 6, 32);
+      p1(ctx, 1, 1, t.doorMid, 4, 30);
+      p1(ctx, 27, 1, t.doorMid, 4, 30);
+      p1(ctx, 2, 2, t.doorLight, 2, 28);
+      p1(ctx, 28, 2, t.doorLight, 2, 28);
+      p1(ctx, 0, 0, t.doorLintelDark, 32, 5);
+      p1(ctx, 1, 1, t.doorLintelMid, 30, 3);
+      p1(ctx, 6, 2, t.doorStud, 2, 2);
+      p1(ctx, 15, 2, t.doorStud, 2, 2);
+      p1(ctx, 24, 2, t.doorStud, 2, 2);
+      p1(ctx, 6, 14, t.doorThresholdDark, 20, 4);
+      p1(ctx, 7, 15, t.doorThresholdLight, 18, 2);
       break;
     }
 
     case TileType.PORTAL_SPAWN: {
-      // Glowing Spawn Rune Circle
-      const runeColor = animFrame % 2 === 0 ? '#38BDF8' : '#818CF8';
-      px(ctx, 3, 3, '#1E3A8A', 10, 10);
-      px(ctx, 4, 4, runeColor, 8, 8);
-      px(ctx, 5, 5, '#1E2430', 6, 6);
-      px(ctx, 7, 7, '#BAE6FD', 2, 2);
+      // 32x32 Grand Arcane Teleportation Circle
+      const pulse = animFrame % 2 === 0;
+      const ringColor = pulse ? '#38BDF8' : '#818CF8';
+      const coreColor = pulse ? '#BAE6FD' : '#C7D2FE';
+      p1(ctx, 3, 3, '#0F172A', 26, 26);
+      p1(ctx, 4, 4, '#1E3A8A', 24, 24);
+      p1(ctx, 6, 6, ringColor, 20, 20);
+      p1(ctx, 8, 8, '#172554', 16, 16);
+      p1(ctx, 15, 4, coreColor, 2, 24);
+      p1(ctx, 4, 15, coreColor, 24, 2);
+      p1(ctx, 11, 11, ringColor, 10, 10);
+      p1(ctx, 13, 13, coreColor, 6, 6);
+      p1(ctx, 15, 15, '#FFFFFF', 2, 2);
       break;
     }
 
     case TileType.EXIT_LOCKED: {
-      // Locked Iron Portcullis Gate with Golden Padlock
-      px(ctx, 0, 0, '#334155', 16, 3);
-      px(ctx, 1, 0, '#0F172A', 14, 16);
-      // Iron bars
-      for (let bx = 2; bx <= 13; bx += 3) {
-        px(ctx, bx, 2, '#64748B', 2, 14);
-        px(ctx, bx, 2, '#94A3B8', 1, 14);
+      // 32x32 Heavy Fortress Portcullis Gate with Royal Padlock (Biome Archway Header)
+      p1(ctx, 0, 0, t.wallMortar, 32, 32);
+      p1(ctx, 0, 0, t.wallCorniceBody, 32, 6);
+      p1(ctx, 2, 1, t.wallCorniceHighlight, 28, 2);
+      for (let bx = 4; bx <= 26; bx += 5) {
+        p1(ctx, bx, 6, '#334155', 3, 26);
+        p1(ctx, bx, 6, '#94A3B8', 1, 26);
       }
-      // Crossbars
-      px(ctx, 1, 5, '#475569', 14, 2);
-      px(ctx, 1, 11, '#475569', 14, 2);
-      // Red/Gold Padlock in center
-      px(ctx, 6, 6, '#DC2626', 4, 5);
-      px(ctx, 7, 4, '#FACC15', 2, 2);
-      px(ctx, 7, 8, '#FEF08A', 2, 2);
+      p1(ctx, 2, 11, '#475569', 28, 3);
+      p1(ctx, 2, 22, '#475569', 28, 3);
+      p1(ctx, 11, 12, '#090D16', 10, 12);
+      p1(ctx, 13, 9, '#FACC15', 6, 4);
+      p1(ctx, 14, 10, '#090D16', 4, 3);
+      p1(ctx, 12, 13, '#DC2626', 8, 10);
+      p1(ctx, 13, 14, '#EF4444', 6, 8);
+      p1(ctx, 15, 16, '#FEF08A', 2, 4);
       break;
     }
 
     case TileType.EXIT_OPEN: {
-      // Open Magical Exit Portal & Stairs
-      px(ctx, 0, 0, '#475569', 16, 3);
-      px(ctx, 2, 2, '#064E3B', 12, 13);
-      const glow = animFrame % 2 === 0 ? '#10B981' : '#34D399';
-      const inner = animFrame % 2 === 0 ? '#6EE7B7' : '#A7F3D0';
-      px(ctx, 3, 3, glow, 10, 11);
-      px(ctx, 5, 5, inner, 6, 7);
-      px(ctx, 7, 7, '#ECFDF5', 2, 3);
+      // 32x32 Illuminated Emerald Sanctuary Portal Archway (Biome Archway Frame)
+      p1(ctx, 0, 0, t.wallMortar, 32, 32);
+      p1(ctx, 0, 0, t.wallCorniceBody, 32, 6);
+      p1(ctx, 2, 1, '#FACC15', 28, 2);
+      p1(ctx, 0, 6, t.wallUpperA, 4, 26);
+      p1(ctx, 28, 6, t.wallUpperA, 4, 26);
+      const pulse = animFrame % 2 === 0;
+      p1(ctx, 4, 6, '#064E3B', 24, 26);
+      p1(ctx, 6, 8, pulse ? '#10B981' : '#059669', 20, 22);
+      p1(ctx, 9, 11, pulse ? '#34D399' : '#6EE7B7', 14, 16);
+      p1(ctx, 12, 14, '#A7F3D0', 8, 10);
+      p1(ctx, 14, 16, '#ECFDF5', 4, 6);
       break;
     }
 
