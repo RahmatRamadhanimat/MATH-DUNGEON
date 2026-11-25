@@ -14,17 +14,34 @@
 }
 
 @layer base {
-  html,
+  html {
+    background-color: var(--bg-obsidian);
+    color: #f1f5f9;
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+    margin: 0;
+    padding: 0;
+    overflow-x: clip;
+    overscroll-behavior-x: none;
+    scrollbar-color: #334155 #0b101b;
+    scrollbar-width: thin;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+
   body {
     background-color: var(--bg-obsidian);
     color: #f1f5f9;
     font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
     margin: 0;
     padding: 0;
-    overflow-x: hidden;
-    overscroll-behavior: none;
+    min-height: 100dvh;
+    overflow: visible;
     -webkit-tap-highlight-color: transparent;
-    -webkit-font-smoothing: antialiased;
+  }
+
+  body[data-state='playing'] {
+    overscroll-behavior: none;
   }
 
   button,
@@ -145,21 +162,32 @@
 }
 
 /* Custom sleek dark scrollbar */
-.rpg-scroll::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+.rpg-scroll {
+  scrollbar-color: #334155 #0b101b;
+  scrollbar-width: thin;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
+html::-webkit-scrollbar,
+.rpg-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+html::-webkit-scrollbar-track,
 .rpg-scroll::-webkit-scrollbar-track {
   background: #0b101b;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
+html::-webkit-scrollbar-thumb,
 .rpg-scroll::-webkit-scrollbar-thumb {
   background: #334155;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
+html::-webkit-scrollbar-thumb:hover,
 .rpg-scroll::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }

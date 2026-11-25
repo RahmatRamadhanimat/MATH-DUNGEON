@@ -125,19 +125,21 @@ export const ResultVictoryModal: React.FC<ResultVictoryModalProps> = ({
               <Home className="w-3.5 h-3.5 text-amber-300 shrink-0" aria-hidden="true" />
               <span>Kembali ke Menu Utama</span>
             </button>
-            <button
-              type="button"
-              data-start="true"
-              data-testid="play-again-btn"
-              onClick={() => {
-                retroAudio.playButtonClick();
-                onPlayAgain();
-              }}
-              className="rpg-btn-gold col-span-2 sm:col-span-1 min-h-[44px] px-5 py-2 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 whitespace-nowrap"
-            >
-              <RotateCcw className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span>Main Lagi (Labirin Baru)</span>
-            </button>
+            {localRole === 'teacher' && (
+              <button
+                type="button"
+                data-start="true"
+                data-testid="play-again-btn"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  onPlayAgain();
+                }}
+                className="rpg-btn-gold col-span-2 sm:col-span-1 min-h-[44px] px-5 py-2 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 whitespace-nowrap"
+              >
+                <RotateCcw className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>Main Lagi (Labirin Baru)</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -471,17 +473,20 @@ export const ResultVictoryModal: React.FC<ResultVictoryModalProps> = ({
             <Home className="w-4 h-4 text-amber-300 shrink-0" aria-hidden="true" />
             <span>Kembali ke Menu Utama</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              retroAudio.playButtonClick();
-              onPlayAgain();
-            }}
-            className="rpg-btn-gold min-h-[44px] px-5 py-2.5 font-bold text-xs sm:text-sm flex items-center justify-center gap-2"
-          >
-            <RotateCcw className="w-4 h-4 shrink-0" aria-hidden="true" />
-            <span>Main Lagi (Labirin Baru)</span>
-          </button>
+          {localRole === 'teacher' && (
+            <button
+              type="button"
+              data-testid="play-again-footer-btn"
+              onClick={() => {
+                retroAudio.playButtonClick();
+                onPlayAgain();
+              }}
+              className="rpg-btn-gold min-h-[44px] px-5 py-2.5 font-bold text-xs sm:text-sm flex items-center justify-center gap-2"
+            >
+              <RotateCcw className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span>Main Lagi (Labirin Baru)</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -52,7 +52,17 @@ import {
   renderOverheadEmoteBalloon,
 } from '../shared/emoteSystem';
 import { LeaderboardEntry } from '../shared/scoreSystem';
-import { getCharacterSprite, getKeySprite, getTileSprite } from '../game/assets/PixelArtSprites';
+import {
+  evaluateActivePowerUps,
+  isChestAvailableForPlayer,
+} from '../shared/mysteryChests';
+import { StreakTierInfo, evaluateStreakTier } from '../shared/streakSystem';
+import {
+  getCharacterSprite,
+  getKeySprite,
+  getMysteryChestSprite,
+  getTileSprite,
+} from '../game/assets/PixelArtSprites';
 import { retroAudio } from '../game/audio/RetroAudio';
 import {
   DpadInputState,
@@ -91,6 +101,10 @@ export interface RenderPlayerState {
   score: number;
   lives: number;
   keysCollected: number;
+  torchExpiresAt?: number | null;
+  speedExpiresAt?: number | null;
+  currentStreak?: number;
+  bestStreak?: number;
 }
 
 export interface FxTriggerPayload {
@@ -115,6 +129,9 @@ interface MazeCanvasViewProps {
   localPlayerName: string;
   localTeamId: TeamId | null;
   localStatus: PlayerStatus;
+  localTorchExpiresAt?: number | null;
+  localSpeedExpiresAt?: number | null;
+  localCurrentStreak?: number;
   gameMode: GameMode;
   biome?: MazeBiomeId;
   isPaused: boolean;
@@ -149,6 +166,9 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
   localPlayerName,
   localTeamId,
   localStatus,
+  localTorchExpiresAt = null,
+  localSpeedExpiresAt = null,
+  localCurrentStreak = 0,
   gameMode,
   biome = DEFAULT_MAZE_BIOME,
   isPaused,
@@ -247,6 +267,9 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
     localPlayerName,
     localTeamId,
     localStatus,
+    localTorchExpiresAt,
+    localSpeedExpiresAt,
+    localCurrentStreak,
     gameMode,
     biome,
     isPaused,
@@ -273,6 +296,9 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
       localPlayerName,
       localTeamId,
       localStatus,
+      localTorchExpiresAt,
+      localSpeedExpiresAt,
+      localCurrentStreak,
       gameMode,
       biome,
       isPaused,
@@ -297,6 +323,9 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
     localPlayerName,
     localTeamId,
     localStatus,
+    localTorchExpiresAt,
+    localSpeedExpiresAt,
+    localCurrentStreak,
     gameMode,
     biome,
     isPaused,
@@ -526,10 +555,51 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
       targetCtx.restore();
     };
 
+    const drawCharacterFlameAura = (
+      targetCtx: CanvasRenderingContext2D,
+      cx: number,
+      cy: number,
+      tierInfo: StreakTierInfo,
+      nowMs: number
+    ) => {
+      if (tierInfo.tier === 'none') return;
+      targetCtx.save();
+
+      // 1. Pulsing radial flame glow behind character
+      const pulseR = (tierInfo.tier === 'blue_flame_7' ? 23 : 20) + Math.sin(nowMs / 110) * 2.5;
+      const grad = targetCtx.createRadialGradient(cx, cy - 2, 3, cx, cy - 2, pulseR);
+      grad.addColorStop(0, tierInfo.glowRgba);
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      targetCtx.fillStyle = grad;
+      targetCtx.beginPath();
+      targetCtx.arc(cx, cy - 2, pulseR, 0, Math.PI * 2);
+      targetCtx.fill();
+
+      // 2. Flickering pixel flame tongues rising around shoulders & waist
+      const tongueCount = tierInfo.tier === 'blue_flame_7' ? 6 : 4;
+      for (let i = 0; i < tongueCount; i++) {
+        const phase = nowMs / 95 + i * 1.45;
+        const angle = (i / tongueCount) * Math.PI * 2 + Math.sin(phase) * 0.25;
+        const fx = cx + Math.cos(angle) * 11;
+        const fy = cy + 3 + Math.sin(angle) * 6 - ((Math.abs(Math.sin(phase)) * 8) | 0);
+        targetCtx.fillStyle = i % 2 === 0 ? tierInfo.primaryColor : tierInfo.secondaryColor;
+        targetCtx.fillRect(Math.round(fx - 1.5), Math.round(fy - 2.5), 3, 4);
+      }
+
+      // 3. Blazing ground ring beneath feet
+      targetCtx.strokeStyle = tierInfo.primaryColor;
+      targetCtx.lineWidth = 1.4;
+      targetCtx.beginPath();
+      targetCtx.ellipse(Math.round(cx), Math.round(cy + 11), 12.5, 5.5, 0, 0, Math.PI * 2);
+      targetCtx.stroke();
+      targetCtx.restore();
+    };
+
     let modalRenderedOnce = false;
     let wasQuestionOpen = false;
     let lastUiDpadDir: Direction | null = null;
     let lastMinimapDrawAt = 0;
+    let lastStreakSparkleAt = 0;
     let lastMinimapMode: MinimapViewMode | null = null;
     let lastMinimapCanvasEl: HTMLCanvasElement | null = null;
 
@@ -565,6 +635,16 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
 
       const currentMaze = state.maze;
       const isLobbyMap = isVictoryLobbyMaze(currentMaze);
+      const activeBuffs = evaluateActivePowerUps({
+        torchExpiresAt: state.localTorchExpiresAt,
+        speedExpiresAt: state.localSpeedExpiresAt,
+        nowMs: Date.now(),
+      });
+      const localStreakTier = evaluateStreakTier(state.localCurrentStreak);
+      canvas.dataset.visionMultiplier = String(activeBuffs.visionMultiplier);
+      canvas.dataset.speedMultiplier = String(activeBuffs.speedMultiplier);
+      canvas.dataset.currentStreak = String(localStreakTier.streakCount);
+      canvas.dataset.streakMultiplier = String(localStreakTier.multiplier);
 
       // Handle external FX / assist triggers
       if (fxTriggerRef.current.type) {
@@ -669,7 +749,7 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
           }
           lp.anim = 'walk';
 
-          const step = GAME_RULES.PLAYER_SPEED * dt;
+          const step = GAME_RULES.PLAYER_SPEED * activeBuffs.speedMultiplier * dt;
           const nextX = lp.x + dx * step;
           const nextY = lp.y + dy * step;
 
@@ -682,6 +762,19 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
           }
 
           lp.walkDist += step;
+          if (localStreakTier.tier !== 'none' && now - lastStreakSparkleAt > 85) {
+            lastStreakSparkleAt = now;
+            spawnGenericParticles(
+              particleState,
+              lp.x - dx * 6,
+              lp.y + 7 - dy * 4,
+              2,
+              localStreakTier.particleColors,
+              52,
+              0.38,
+              'star'
+            );
+          }
           if (now - lastFootstepAt > 260) {
             lastFootstepAt = now;
             retroAudio.playFootstep();
@@ -733,6 +826,31 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
                 break;
               }
             } else if (lp.lastKeyTouchedId === k.id && dist > 30) {
+              lp.lastKeyTouchedId = null;
+            }
+          }
+
+          // Check proximity to unopened Mystery Chests in secret rooms
+          for (const chest of currentMaze.chests ?? []) {
+            if (!isChestAvailableForPlayer(chest, state.localPlayerId)) {
+              continue;
+            }
+            const dist = Math.hypot(lp.x - chest.x, lp.y - chest.y);
+            if (dist < 22) {
+              if (lp.lastKeyTouchedId !== chest.id || now - lp.lastKeyTouchTime > 1800) {
+                lp.lastKeyTouchedId = chest.id;
+                lp.lastKeyTouchTime = now;
+                keysHeldRef.current.clear();
+                clearDpadInput(dpadStateRef.current);
+                dpadPointerIdRef.current = null;
+                if (lastUiDpadDir !== null) {
+                  lastUiDpadDir = null;
+                  setActiveDpadDir(null);
+                }
+                state.onTouchKey(chest.id);
+                break;
+              }
+            } else if (lp.lastKeyTouchedId === chest.id && dist > 30) {
               lp.lastKeyTouchedId = null;
             }
           }
@@ -1112,6 +1230,51 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
           ctx.drawImage(keySprite, Math.round(k.x - 16), Math.round(k.y - 16), 32, 32);
         }
 
+        // Draw Mystery Chests in secret rooms
+        for (const chest of currentMaze.chests ?? []) {
+          if (
+            chest.x < cameraX - halfViewWorldW ||
+            chest.x > cameraX + halfViewWorldW ||
+            chest.y < cameraY - halfViewWorldH ||
+            chest.y > cameraY + halfViewWorldH
+          ) {
+            continue;
+          }
+          const isOpenedByMe = !isChestAvailableForPlayer(chest, state.localPlayerId);
+          if (!isOpenedByMe) {
+            const chestGlowR = 22 + Math.sin(now / 150) * 3;
+            const cGrad = ctx.createRadialGradient(
+              chest.x,
+              chest.y,
+              2,
+              chest.x,
+              chest.y,
+              chestGlowR
+            );
+            cGrad.addColorStop(0, 'rgba(192, 132, 252, 0.45)');
+            cGrad.addColorStop(0.6, 'rgba(250, 204, 21, 0.22)');
+            cGrad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = cGrad;
+            ctx.beginPath();
+            ctx.arc(chest.x, chest.y, chestGlowR, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          const chestSprite = getMysteryChestSprite(
+            chest.rewardType,
+            isOpenedByMe,
+            globalAnimFrame
+          );
+          ctx.drawImage(chestSprite, Math.round(chest.x - 16), Math.round(chest.y - 16), 32, 32);
+
+          if (!isOpenedByMe) {
+            ctx.font = 'bold 4.4px "IBM Plex Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#E9D5FF';
+            ctx.fillText('PETI MISTERI', Math.round(chest.x), Math.round(chest.y - 17));
+          }
+        }
+
         // Draw Exit Door Label
         const exitWorldX = currentMaze.exitTile.x * GAME_RULES.TILE_SIZE + 16;
         const exitWorldY = currentMaze.exitTile.y * GAME_RULES.TILE_SIZE;
@@ -1126,7 +1289,7 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
       }
 
       // 4. Draw Remote Players
-      const LIGHT_RADIUS = 300;
+      const LIGHT_RADIUS = Math.round(300 * activeBuffs.visionMultiplier);
       for (const rp of state.players) {
         if (rp.id === state.localPlayerId || rp.role === 'teacher') continue;
         // Inside the active dungeon, hide players who have already escaped to the Victory Lobby.
@@ -1187,6 +1350,10 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
         if (!isLobbyMap && (rp.status === 'spectator' || rp.status === 'eliminated')) {
           ctx.globalAlpha = 0.45;
         }
+        const remoteStreakTier = evaluateStreakTier(rp.currentStreak ?? 0);
+        if (remoteStreakTier.tier !== 'none') {
+          drawCharacterFlameAura(ctx, interp.x, interp.y + bounceY, remoteStreakTier, now);
+        }
         ctx.drawImage(
           sprite,
           Math.round(interp.x - 17),
@@ -1220,6 +1387,13 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
         } else if (interp.anim === 'answering') {
           ctx.fillStyle = '#FACC15';
           ctx.fillText('SOAL...', Math.round(interp.x), Math.round(interp.y - 28));
+        } else if (remoteStreakTier.tier !== 'none') {
+          ctx.fillStyle = remoteStreakTier.primaryColor;
+          ctx.fillText(
+            remoteStreakTier.shortLabel,
+            Math.round(interp.x),
+            Math.round(interp.y - 27 + bounceY)
+          );
         }
         ctx.restore();
       }
@@ -1338,6 +1512,10 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
       const myBounceY = myEmote ? myEmote.characterBounceY : 0;
       canvas.dataset.activeEmote = myEmote?.emote.id ?? '';
 
+      if (localStreakTier.tier !== 'none') {
+        drawCharacterFlameAura(ctx, lp.x, lp.y + myBounceY, localStreakTier, now);
+      }
+
       ctx.drawImage(mySprite, Math.round(lp.x - 17), Math.round(lp.y - 18 + myBounceY), 34, 34);
 
       // Local player nameplate
@@ -1348,16 +1526,39 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
       const myLabelX = Math.round(lp.x - myLabelW / 2);
       const myLabelY = Math.round(lp.y - 26 + myBounceY);
       ctx.fillRect(myLabelX, myLabelY, myLabelW, 8);
-      ctx.strokeStyle = onPodiumStage ? 'rgba(250, 204, 21, 0.8)' : 'rgba(56, 189, 248, 0.55)';
-      ctx.lineWidth = 0.75;
+      ctx.strokeStyle =
+        localStreakTier.tier !== 'none'
+          ? localStreakTier.primaryColor
+          : onPodiumStage
+          ? 'rgba(250, 204, 21, 0.8)'
+          : 'rgba(56, 189, 248, 0.55)';
+      ctx.lineWidth = 0.85;
       ctx.strokeRect(myLabelX, myLabelY, myLabelW, 8);
-      ctx.fillStyle = onPodiumStage ? '#FACC15' : '#38BDF8';
+      ctx.fillStyle =
+        localStreakTier.tier !== 'none'
+          ? localStreakTier.secondaryColor
+          : onPodiumStage
+          ? '#FACC15'
+          : '#38BDF8';
       ctx.fillText(state.localPlayerName.slice(0, 14), Math.round(lp.x), myLabelY + 5.5);
 
       if (myEmote) {
         renderOverheadEmoteBalloon(ctx, lp.x, lp.y + myBounceY, myEmote);
       } else if (onPodiumStage) {
         drawCrownBadge(ctx, Math.round(lp.x), myLabelY - 2);
+      } else if (localStreakTier.tier !== 'none') {
+        const sTag = localStreakTier.shortLabel;
+        const sTagW = Math.max(30, sTag.length * 3.3 + 6);
+        const sTagX = Math.round(lp.x - sTagW / 2);
+        const sTagY = myLabelY - 8;
+        ctx.fillStyle = 'rgba(9, 13, 21, 0.92)';
+        ctx.fillRect(sTagX, sTagY, sTagW, 7);
+        ctx.strokeStyle = localStreakTier.primaryColor;
+        ctx.lineWidth = 0.7;
+        ctx.strokeRect(sTagX, sTagY, sTagW, 7);
+        ctx.fillStyle = localStreakTier.primaryColor;
+        ctx.font = 'bold 4.3px "IBM Plex Mono", monospace';
+        ctx.fillText(sTag, Math.round(lp.x), sTagY + 5);
       }
       ctx.restore();
 
@@ -1470,7 +1671,11 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
           focusX,
           focusY,
           GAME_RULES.TILE_SIZE,
-          camResolution.activeMode === 'free_cam' ? 10 : 8
+          camResolution.activeMode === 'free_cam'
+            ? 10
+            : activeBuffs.torchRemainingSeconds > 0
+            ? 12
+            : 8
         );
         if (summary.changed) {
           setMinimapStats({
@@ -1639,6 +1844,29 @@ export const MazeCanvasView: React.FC<MazeCanvasViewProps> = ({
                 Math.round(ky - markerSz / 2),
                 markerSz,
                 markerSz
+              );
+            }
+
+            // Mystery Chests on minimap (purple arcane markers)
+            for (const chest of currentMaze.chests ?? []) {
+              if (!isChestAvailableForPlayer(chest, state.localPlayerId)) {
+                continue;
+              }
+              const cx = toMiniX(chest.tileX + 0.5);
+              const cy = toMiniY(chest.tileY + 0.5);
+              if (cx < 0 || cx > mw || cy < 0 || cy > mh) {
+                continue;
+              }
+              const chestDiscovered =
+                discoveredMinimap.cells[chest.tileY * currentMaze.width + chest.tileX] >=
+                MINIMAP_CELL_DISCOVERED;
+              mctx.fillStyle = chestDiscovered ? '#C084FC' : 'rgba(192, 132, 252, 0.72)';
+              const cSz = Math.max(4, Math.min(8, Math.ceil(scaleX)));
+              mctx.fillRect(
+                Math.round(cx - cSz / 2),
+                Math.round(cy - cSz / 2),
+                cSz,
+                cSz
               );
             }
 

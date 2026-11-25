@@ -187,6 +187,8 @@ export default function App() {
     x?: number;
     y?: number;
     pointsEarned: number;
+    bannerText?: string;
+    subText?: string;
   } | null>(null);
 
   const activeQuestionRef = useRef<PublicMathQuestion | null>(null);
@@ -245,8 +247,8 @@ export default function App() {
         type: 'key',
         x: celebrate.x,
         y: celebrate.y,
-        bannerText: '★ KUNCI EMAS! ★',
-        subText: `+${celebrate.pointsEarned} POIN`,
+        bannerText: celebrate.bannerText ?? '★ KUNCI EMAS! ★',
+        subText: celebrate.subText ?? `+${celebrate.pointsEarned} POIN`,
       };
     }
   }, [resetQuestionModal]);
@@ -270,23 +272,59 @@ export default function App() {
 
       if (res.correct) {
         retroAudio.playKeyCollected();
-        const keyObj = roomStateRef.current?.maze.keys.find((k) => k.id === res.keyId);
-        lastCollectedKeyFxRef.current = {
-          x: keyObj?.x,
-          y: keyObj?.y,
-          pointsEarned: res.pointsEarned,
-        };
-        fxTriggerRef.current = {
-          type: 'key',
-          x: keyObj?.x,
-          y: keyObj?.y,
-          bannerText: '★ KUNCI EMAS! ★',
-          subText: `+${res.pointsEarned} POIN`,
-        };
+        if (res.isMysteryChest) {
+          const chestObj = roomStateRef.current?.maze.chests?.find((c) => c.id === res.keyId);
+          const bannerText = res.powerUpGranted?.bannerText ?? '★ PETI MISTERI! ★';
+          const subText = res.powerUpGranted?.subText ?? `+${res.pointsEarned} POIN`;
+          lastCollectedKeyFxRef.current = {
+            x: chestObj?.x,
+            y: chestObj?.y,
+            pointsEarned: res.pointsEarned,
+            bannerText,
+            subText,
+          };
+          fxTriggerRef.current = {
+            type: 'key',
+            x: chestObj?.x,
+            y: chestObj?.y,
+            bannerText,
+            subText,
+          };
+        } else {
+          const keyObj = roomStateRef.current?.maze.keys.find((k) => k.id === res.keyId);
+          const streakTag =
+            (res.streakCount ?? 0) >= 7
+              ? `★ API BIRU ${res.streakCount}x! ★`
+              : (res.streakCount ?? 0) >= 5
+              ? `★ ON FIRE ${res.streakCount}x! ★`
+              : (res.streakCount ?? 0) >= 3
+              ? `★ COMBO ${res.streakCount}x! ★`
+              : '★ KUNCI EMAS! ★';
+          const subTag =
+            (res.streakBonusPoints ?? 0) > 0
+              ? `+${res.pointsEarned} POIN (x${res.streakMultiplier})`
+              : `+${res.pointsEarned} POIN`;
+          lastCollectedKeyFxRef.current = {
+            x: keyObj?.x,
+            y: keyObj?.y,
+            pointsEarned: res.pointsEarned,
+            bannerText: streakTag,
+            subText: subTag,
+          };
+          fxTriggerRef.current = {
+            type: 'key',
+            x: keyObj?.x,
+            y: keyObj?.y,
+            bannerText: streakTag,
+            subText: subTag,
+          };
+        }
       } else {
         lastCollectedKeyFxRef.current = null;
         retroAudio.playWrongAnswer();
-        fxTriggerRef.current = { type: 'wrong' };
+        if (!res.isMysteryChest) {
+          fxTriggerRef.current = { type: 'wrong' };
+        }
       }
 
       setQuestionFeedback({
@@ -295,6 +333,12 @@ export default function App() {
         explanation: res.explanation,
         pointsEarned: res.pointsEarned,
         livesRemaining: res.livesRemaining,
+        isMysteryChest: res.isMysteryChest,
+        powerUpGranted: res.powerUpGranted ?? null,
+        streakCount: res.streakCount ?? 0,
+        streakMultiplier: res.streakMultiplier ?? 1,
+        streakBonusPoints: res.streakBonusPoints ?? 0,
+        streakMilestoneAnnouncement: res.streakMilestoneAnnouncement ?? null,
       });
     },
     [clearSubmitTimers]
@@ -368,6 +412,11 @@ export default function App() {
       document.body.dataset.state = 'playing';
     }
   }, [screenView, roomState?.status]);
+
+  // Reset scroll to top when switching between menu, lobby, and gameplay screens
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [screenView]);
 
   // Connect Socket.IO client
   useEffect(() => {
@@ -523,6 +572,19 @@ export default function App() {
     });
 
     socket.on(
+      SOCKET_EVENTS.TEACHER_AID_BROADCAST,
+      (payload: { kind: 'time' | 'heart'; bannerText: string; subText: string; message: string }) => {
+        if (!payload) return;
+        retroAudio.playKeyCollected();
+        fxTriggerRef.current = {
+          type: 'key',
+          bannerText: payload.bannerText || '★ BANTUAN GURU! ★',
+          subText: payload.subText || 'HADIAH KELAS',
+        };
+      }
+    );
+
+    socket.on(
       SOCKET_EVENTS.PLAYER_EMOTE,
       (payload: {
         id: string;
@@ -676,7 +738,7 @@ export default function App() {
         // When Big Screen Projector Mode is active, let ProjectorBigScreenView own Esc & F shortcuts
         if (projectorMode) return;
 
-        if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
+        if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && localRole === 'teacher') {
           e.preventDefault();
           handleTogglePause();
         } else if (e.key === 'm' || e.key === 'M') {
@@ -829,11 +891,17 @@ export default function App() {
   };
 
   const handleTogglePause = () => {
-    if (!roomState || !socketRef.current) return;
+    if (!roomState || !socketRef.current || localRole !== 'teacher') return;
     if (roomState.status === 'paused') {
-      socketRef.current.emit(SOCKET_EVENTS.RESUME_GAME, { roomCode: roomState.code });
+      socketRef.current.emit(SOCKET_EVENTS.RESUME_GAME, {
+        roomCode: roomState.code,
+        playerId,
+      });
     } else if (roomState.status === 'playing') {
-      socketRef.current.emit(SOCKET_EVENTS.PAUSE_GAME, { roomCode: roomState.code });
+      socketRef.current.emit(SOCKET_EVENTS.PAUSE_GAME, {
+        roomCode: roomState.code,
+        playerId,
+      });
     }
   };
 
@@ -1150,6 +1218,21 @@ export default function App() {
             deltaBufferRef={deltaBufferRef}
             activeEmotesRef={activeEmotesRef}
             onExitProjectorMode={() => setProjectorMode(false)}
+            onTeacherAddTime={() => {
+              if (localRole !== 'teacher') return;
+              socketRef.current?.emit(SOCKET_EVENTS.TEACHER_ADD_TIME, {
+                roomCode: roomState.code,
+                playerId,
+                seconds: 60,
+              });
+            }}
+            onTeacherRestoreHeart={() => {
+              if (localRole !== 'teacher') return;
+              socketRef.current?.emit(SOCKET_EVENTS.TEACHER_RESTORE_HEART, {
+                roomCode: roomState.code,
+                playerId,
+              });
+            }}
           />
         ) : (
         <div className="fixed inset-0 w-full h-[100dvh] overflow-hidden">
@@ -1161,6 +1244,9 @@ export default function App() {
             localPlayerName={localPlayerObj?.name ?? playerName}
             localTeamId={localPlayerObj?.teamId ?? null}
             localStatus={localPlayerObj?.status ?? 'active'}
+            localTorchExpiresAt={localPlayerObj?.torchExpiresAt ?? null}
+            localSpeedExpiresAt={localPlayerObj?.speedExpiresAt ?? null}
+            localCurrentStreak={localPlayerObj?.currentStreak ?? 0}
             gameMode={roomState.settings.mode}
             biome={roomState.settings.biome}
             isPaused={roomState.status === 'paused'}
@@ -1204,6 +1290,9 @@ export default function App() {
             doorOpenForMe={isDoorOpenForLocalPlayer()}
             remainingSeconds={roomState.remainingSeconds}
             playerStatus={localPlayerObj?.status ?? 'active'}
+            torchExpiresAt={localPlayerObj?.torchExpiresAt ?? null}
+            speedExpiresAt={localPlayerObj?.speedExpiresAt ?? null}
+            currentStreak={localPlayerObj?.currentStreak ?? 0}
             isPaused={roomState.status === 'paused'}
             isVictoryLobby={isInVictoryLobby}
             muted={muted}
@@ -1230,17 +1319,36 @@ export default function App() {
               })
             }
             onTriggerEmote={handleTriggerEmote}
-            onTeacherEndGame={() =>
+            onTeacherAddTime={() => {
+              if (localRole !== 'teacher') return;
+              socketRef.current?.emit(SOCKET_EVENTS.TEACHER_ADD_TIME, {
+                roomCode: roomState.code,
+                playerId,
+                seconds: 60,
+              });
+            }}
+            onTeacherRestoreHeart={() => {
+              if (localRole !== 'teacher') return;
+              socketRef.current?.emit(SOCKET_EVENTS.TEACHER_RESTORE_HEART, {
+                roomCode: roomState.code,
+                playerId,
+              });
+            }}
+            onTeacherEndGame={() => {
+              if (localRole !== 'teacher') return;
               socketRef.current?.emit(SOCKET_EVENTS.END_GAME, {
                 roomCode: roomState.code,
+                playerId,
                 reason: 'Permainan diselesaikan oleh Guru.',
-              })
-            }
-            onTeacherRestartGame={() =>
+              });
+            }}
+            onTeacherRestartGame={() => {
+              if (localRole !== 'teacher') return;
               socketRef.current?.emit(SOCKET_EVENTS.RESTART_GAME, {
                 roomCode: roomState.code,
-              })
-            }
+                playerId,
+              });
+            }}
             onOpenProjectorMode={() => setProjectorMode(true)}
             onLeaveRoom={handleLeaveCurrentRoom}
             onOpenVictoryResults={() => setScreenView('gameover')}
@@ -1251,6 +1359,7 @@ export default function App() {
               key={activeQuestion.id}
               question={activeQuestion}
               feedback={questionFeedback}
+              currentStreak={localPlayerObj?.currentStreak ?? 0}
               submitError={questionSubmitError}
               canRetryOrClose={questionWaitingRetry}
               onSelectAnswer={handleSelectAnswer}
@@ -1275,8 +1384,10 @@ export default function App() {
             setScreenView('playing');
           }}
           onPlayAgain={() => {
+            if (localRole !== 'teacher') return;
             socketRef.current?.emit(SOCKET_EVENTS.RESTART_GAME, {
               roomCode: roomState.code,
+              playerId,
             });
           }}
           onReturnToMenu={handleLeaveCurrentRoom}

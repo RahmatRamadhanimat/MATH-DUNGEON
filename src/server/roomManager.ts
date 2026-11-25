@@ -56,6 +56,11 @@ export interface ServerPlayer {
     issuedAt: number;
   } | null;
   lastAnsweredResult?: AnswerResultPayload | null;
+  torchExpiresAt?: number | null;
+  speedExpiresAt?: number | null;
+  currentStreak?: number;
+  bestStreak?: number;
+  extraBonusPoints?: number;
 }
 
 export interface ChatLogItem {
@@ -395,6 +400,21 @@ export class RoomManager {
     return null;
   }
 
+  public isTeacherAuthorized(
+    room: GameRoom,
+    caller: { playerId?: string | null; socketId?: string | null }
+  ): boolean {
+    const callerPlayerId = (caller.playerId || '').trim();
+    if (callerPlayerId) {
+      return callerPlayerId === room.teacherId;
+    }
+    const callerSocketId = (caller.socketId || '').trim();
+    if (callerSocketId && room.teacherSocketId) {
+      return callerSocketId === room.teacherSocketId;
+    }
+    return false;
+  }
+
   public createRoom(params: {
     teacherId?: string;
     teacherName?: string;
@@ -526,6 +546,12 @@ export class RoomManager {
     }
 
     if (role === 'teacher') {
+      if (playerId !== room.teacherId) {
+        return {
+          ok: false,
+          error: 'Hanya Guru pembuat room yang memiliki akses kontrol Guru.',
+        };
+      }
       room.teacherSocketId = params.socketId;
       const teacherRecord = room.players.get(playerId) ?? room.players.get(room.teacherId);
       if (teacherRecord) {
@@ -741,11 +767,70 @@ export class RoomManager {
       ]);
       p.activeQuestion = null;
       p.lastAnsweredResult = null;
+      p.torchExpiresAt = null;
+      p.speedExpiresAt = null;
+      p.currentStreak = 0;
+      p.bestStreak = 0;
+      p.extraBonusPoints = 0;
       if (room.settings.mode === 'team' && p.role === 'student' && !p.teamId) {
         p.teamId = this.assignPlayerToBalancedTeam(room);
       }
       idx++;
     }
+  }
+
+  public addBonusTime(
+    room: GameRoom,
+    bonusSeconds = 60
+  ): { addedSeconds: number; remainingSeconds: number; systemNote: string } {
+    const addedSeconds = Math.max(10, Math.min(600, Math.round(Number(bonusSeconds) || 60)));
+    room.remainingSeconds = Math.min(3600, Math.max(0, room.remainingSeconds) + addedSeconds);
+    this.persistRoom(room);
+    return {
+      addedSeconds,
+      remainingSeconds: room.remainingSeconds,
+      systemNote: `BANTUAN GURU: Waktu permainan ditambah +${addedSeconds} detik!`,
+    };
+  }
+
+  public restoreClassHeart(
+    room: GameRoom
+  ): { healedCount: number; revivedCount: number; systemNote: string } {
+    let healedCount = 0;
+    let revivedCount = 0;
+    const maxLives = Math.max(1, room.settings.lives);
+
+    for (const p of room.players.values()) {
+      if (p.role !== 'student') continue;
+      if (p.status === 'escaped') continue;
+
+      if (p.status === 'eliminated' || p.status === 'spectator' || p.lives <= 0) {
+        p.lives = Math.min(maxLives, Math.max(1, p.lives + 1));
+        p.status = 'active';
+        p.animState = 'idle';
+        p.activeQuestion = null;
+        revivedCount++;
+        healedCount++;
+      } else if (p.lives < maxLives) {
+        p.lives = Math.min(maxLives, p.lives + 1);
+        healedCount++;
+      }
+    }
+
+    this.persistRoom(room);
+
+    const systemNote =
+      revivedCount > 0
+        ? `BANTUAN GURU: +1 Hati Kelas! ${healedCount} siswa dipulihkan (${revivedCount} siswa tereliminasi aktif kembali).`
+        : healedCount > 0
+        ? `BANTUAN GURU: +1 Hati Kelas! ${healedCount} siswa menerima pemulihan +1 HP.`
+        : 'BANTUAN GURU: +1 Hati Kelas diaktifkan (seluruh siswa sudah memiliki HP penuh).';
+
+    return {
+      healedCount,
+      revivedCount,
+      systemNote,
+    };
   }
 
   public serializeRoomState(
@@ -825,6 +910,10 @@ export class RoomManager {
         wrongAnswers: p.wrongAnswers,
         status: p.status,
         completionTimeSeconds: p.completionTimeSeconds,
+        torchExpiresAt: p.torchExpiresAt ?? null,
+        speedExpiresAt: p.speedExpiresAt ?? null,
+        currentStreak: p.currentStreak ?? 0,
+        bestStreak: p.bestStreak ?? 0,
       })),
       maze: room.maze,
       leaderboard: individualLeaderboard,

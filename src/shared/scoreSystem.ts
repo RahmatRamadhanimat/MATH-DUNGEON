@@ -6,6 +6,7 @@ export interface PlayerScoreInput {
   keysCollected: number;
   completedLevel: boolean;
   remainingSeconds: number;
+  bonusPoints?: number;
 }
 
 export function calculatePlayerScore(input: PlayerScoreInput): number {
@@ -13,7 +14,8 @@ export function calculatePlayerScore(input: PlayerScoreInput): number {
   const keyScore = input.keysCollected * GAME_RULES.KEY_COLLECTED_POINTS;
   const completionBonus = input.completedLevel ? GAME_RULES.LEVEL_COMPLETION_POINTS : 0;
   const timeBonus = input.completedLevel ? Math.max(0, Math.floor(input.remainingSeconds * 2)) : 0;
-  return answerScore + keyScore + completionBonus + timeBonus;
+  const extraBonus = Math.max(0, Math.round(input.bonusPoints ?? 0));
+  return answerScore + keyScore + completionBonus + timeBonus + extraBonus;
 }
 
 export function calculateAccuracy(correctAnswers: number, wrongAnswers: number): number {

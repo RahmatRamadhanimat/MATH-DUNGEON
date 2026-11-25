@@ -1,5 +1,16 @@
 import { GAME_RULES, TEAM_DEFINITIONS, TeamId, TileType } from '../shared/constants';
+import {
+  GrantedPowerUpPayload,
+  MYSTERY_POWER_UPS,
+  isChestAvailableForPlayer,
+  isMysteryChestId,
+} from '../shared/mysteryChests';
 import { calculatePlayerScore } from '../shared/scoreSystem';
+import {
+  buildStreakMilestoneAnnouncement,
+  computeStreakQuestionPoints,
+  evaluateStreakTier,
+} from '../shared/streakSystem';
 import { GameDatabase } from './database';
 import { GameRoom, ServerPlayer } from './roomManager';
 
@@ -11,6 +22,12 @@ export interface AnswerResultPayload {
   explanation: string;
   pointsEarned: number;
   livesRemaining: number;
+  isMysteryChest?: boolean;
+  powerUpGranted?: GrantedPowerUpPayload | null;
+  streakCount?: number;
+  streakMultiplier?: number;
+  streakBonusPoints?: number;
+  streakMilestoneAnnouncement?: string | null;
 }
 
 export interface SubmitAnswerAck {
@@ -152,7 +169,133 @@ export function resolveSubmittedAnswer(params: {
   player.activeQuestion = null;
   player.animState = 'idle';
 
-  const keyObj = room.maze.keys.find((k) => k.id === (payload.keyId || keyId));
+  const targetId = payload.keyId || keyId;
+
+  // Branch A: Mystery Chest Bonus Question (Obor Terang, Sepatu Kilat, Perisai Hati)
+  if (isMysteryChestId(targetId)) {
+    const chestObj = (room.maze.chests ?? []).find((c) => c.id === targetId);
+    if (!chestObj) {
+      return {
+        ack: {
+          ok: false,
+          closeModal: true,
+          error: 'Peti misteri tidak ditemukan di labirin. Silakan lanjutkan eksplorasi.',
+        },
+        systemChats: [],
+        mutatedRoom: false,
+      };
+    }
+
+    const isCorrect = payload.selectedOption === question.correctOption;
+    const answerMs = Math.max(180, Date.now() - (issuedAt || Date.now() - 1800));
+    database.recordQuestionAttempt(question.category, isCorrect, answerMs);
+
+    const systemChats: string[] = [];
+    let powerUpGranted: GrantedPowerUpPayload | null = null;
+    let pointsEarned = 0;
+    let streakBonusPoints = 0;
+    let streakMilestoneAnnouncement: string | null = null;
+
+    if (isCorrect) {
+      const available = isChestAvailableForPlayer(chestObj, player.id);
+      if (available) {
+        chestObj.openedBy = player.id;
+        if (!chestObj.openedByPlayers.includes(player.id)) {
+          chestObj.openedByPlayers.push(player.id);
+        }
+
+        const def = MYSTERY_POWER_UPS[chestObj.rewardType];
+        const nowMs = Date.now();
+        player.currentStreak = (player.currentStreak ?? 0) + 1;
+        player.bestStreak = Math.max(player.bestStreak ?? 0, player.currentStreak);
+
+        const streakPts = computeStreakQuestionPoints({
+          basePoints: def.bonusPoints,
+          newStreakCount: player.currentStreak,
+        });
+        pointsEarned = streakPts.totalPoints;
+        streakBonusPoints = streakPts.bonusStreakPoints;
+        player.extraBonusPoints = (player.extraBonusPoints ?? 0) + streakPts.totalPoints;
+        player.correctAnswers += 1;
+        player.animState = 'key_get';
+
+        if (chestObj.rewardType === 'torch_sight') {
+          const base = Math.max(nowMs, player.torchExpiresAt ?? 0);
+          player.torchExpiresAt = base + def.durationSeconds * 1000;
+        } else if (chestObj.rewardType === 'speed_boots') {
+          const base = Math.max(nowMs, player.speedExpiresAt ?? 0);
+          player.speedExpiresAt = base + def.durationSeconds * 1000;
+        } else if (chestObj.rewardType === 'heart_shield') {
+          player.lives = Math.min(room.settings.lives + 1, player.lives + 1);
+        }
+
+        player.score = calculatePlayerScore({
+          correctAnswers: player.correctAnswers,
+          wrongAnswers: player.wrongAnswers,
+          keysCollected: player.keysCollected,
+          completedLevel: player.status === 'escaped',
+          remainingSeconds: room.remainingSeconds,
+          bonusPoints: player.extraBonusPoints,
+        });
+
+        powerUpGranted = {
+          chestId: chestObj.id,
+          roomName: chestObj.roomName,
+          type: def.type,
+          label: def.label,
+          description: def.description,
+          durationSeconds: def.durationSeconds,
+          bonusPoints: def.bonusPoints,
+          accentColor: def.accentColor,
+          bannerText: def.bannerText,
+          subText: def.subText,
+          torchExpiresAt: player.torchExpiresAt ?? null,
+          speedExpiresAt: player.speedExpiresAt ?? null,
+        };
+
+        systemChats.push(
+          `PETI MISTERI: ${player.name} membuka peti di ${chestObj.roomName} dan mendapatkan ${def.label}!`
+        );
+
+        streakMilestoneAnnouncement = buildStreakMilestoneAnnouncement(
+          player.name,
+          player.currentStreak
+        );
+        if (streakMilestoneAnnouncement) {
+          systemChats.push(streakMilestoneAnnouncement);
+        }
+      }
+    } else {
+      player.currentStreak = 0;
+    }
+
+    const activeTier = evaluateStreakTier(player.currentStreak ?? 0);
+    const result: AnswerResultPayload = {
+      questionId: question.id,
+      correct: isCorrect,
+      keyId: chestObj.id,
+      correctOption: question.correctOption,
+      explanation: question.explanation,
+      pointsEarned,
+      livesRemaining: player.lives,
+      isMysteryChest: true,
+      powerUpGranted,
+      streakCount: player.currentStreak ?? 0,
+      streakMultiplier: activeTier.multiplier,
+      streakBonusPoints,
+      streakMilestoneAnnouncement,
+    };
+    player.lastAnsweredResult = result;
+
+    return {
+      ack: { ok: true, result },
+      result,
+      systemChats,
+      mutatedRoom: true,
+    };
+  }
+
+  const keyObj = room.maze.keys.find((k) => k.id === targetId);
   if (!keyObj) {
     return {
       ack: {
@@ -190,6 +333,10 @@ export function resolveSubmittedAnswer(params: {
       alreadyClaimed = true;
     }
 
+    let pointsEarned = 0;
+    let streakBonusPoints = 0;
+    let streakMilestoneAnnouncement: string | null = null;
+
     if (!alreadyClaimed) {
       player.fastestAnswerMs =
         player.fastestAnswerMs && player.fastestAnswerMs > 0
@@ -197,13 +344,26 @@ export function resolveSubmittedAnswer(params: {
           : answerMs;
       player.correctAnswers += 1;
       player.keysCollected += 1;
+      player.currentStreak = (player.currentStreak ?? 0) + 1;
+      player.bestStreak = Math.max(player.bestStreak ?? 0, player.currentStreak);
       player.animState = 'key_get';
+
+      const baseKeyPoints = GAME_RULES.CORRECT_ANSWER_POINTS + GAME_RULES.KEY_COLLECTED_POINTS;
+      const streakPts = computeStreakQuestionPoints({
+        basePoints: baseKeyPoints,
+        newStreakCount: player.currentStreak,
+      });
+      pointsEarned = streakPts.totalPoints;
+      streakBonusPoints = streakPts.bonusStreakPoints;
+      player.extraBonusPoints = (player.extraBonusPoints ?? 0) + streakPts.bonusStreakPoints;
+
       player.score = calculatePlayerScore({
         correctAnswers: player.correctAnswers,
         wrongAnswers: player.wrongAnswers,
         keysCollected: player.keysCollected,
         completedLevel: player.status === 'escaped',
         remainingSeconds: room.remainingSeconds,
+        bonusPoints: player.extraBonusPoints,
       });
 
       if (room.settings.mode === 'coop') {
@@ -249,6 +409,14 @@ export function resolveSubmittedAnswer(params: {
         }
       }
 
+      streakMilestoneAnnouncement = buildStreakMilestoneAnnouncement(
+        player.name,
+        player.currentStreak
+      );
+      if (streakMilestoneAnnouncement) {
+        systemChats.push(streakMilestoneAnnouncement);
+      }
+
       keyCollectedBroadcast = {
         keyId: keyObj.id,
         playerId: player.id,
@@ -257,16 +425,19 @@ export function resolveSubmittedAnswer(params: {
       };
     }
 
+    const activeTier = evaluateStreakTier(player.currentStreak ?? 0);
     const result: AnswerResultPayload = {
       questionId: question.id,
       correct: true,
       keyId: keyObj.id,
       correctOption: question.correctOption,
       explanation: question.explanation,
-      pointsEarned: alreadyClaimed
-        ? 0
-        : GAME_RULES.CORRECT_ANSWER_POINTS + GAME_RULES.KEY_COLLECTED_POINTS,
+      pointsEarned,
       livesRemaining: player.lives,
+      streakCount: player.currentStreak ?? 0,
+      streakMultiplier: activeTier.multiplier,
+      streakBonusPoints,
+      streakMilestoneAnnouncement,
     };
     player.lastAnsweredResult = result;
 
@@ -281,6 +452,7 @@ export function resolveSubmittedAnswer(params: {
   }
 
   player.wrongAnswers += 1;
+  player.currentStreak = 0;
   player.lives = Math.max(0, player.lives - 1);
   if (player.lives <= 0) {
     player.status = room.settings.eliminatedBehavior;
@@ -297,6 +469,10 @@ export function resolveSubmittedAnswer(params: {
     explanation: question.explanation,
     pointsEarned: 0,
     livesRemaining: player.lives,
+    streakCount: 0,
+    streakMultiplier: 1,
+    streakBonusPoints: 0,
+    streakMilestoneAnnouncement: null,
   };
   player.lastAnsweredResult = result;
 

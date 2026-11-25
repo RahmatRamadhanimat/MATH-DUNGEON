@@ -280,7 +280,7 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
     CHARACTER_PRESETS.find((c) => c.id === characterId) ?? CHARACTER_PRESETS[0];
 
   return (
-    <div className="relative min-h-[100dvh] w-full text-slate-100 flex flex-col justify-between overflow-x-hidden">
+    <div className="relative min-h-[100dvh] w-full text-slate-100 flex flex-col justify-between overflow-x-clip">
       {/* Animated Pixel Art Dungeon Background */}
       <canvas
         ref={bgCanvasRef}
@@ -834,7 +834,7 @@ export const TitleMenuScreen: React.FC<TitleMenuScreenProps> = ({
       {/* Single Flat Control Hint Line in Safe Margin */}
       <div className="relative z-10 text-center pb-3.5 px-4 text-xs text-slate-400">
         <span className="hidden sm:inline">
-          WASD / Panah Bergerak · Sentuh Kunci untuk Soal A/B · P Pause · M Audio · N Peta
+          WASD / Panah Bergerak · Sentuh Kunci untuk Soal A/B · P Pause (Guru) · M Audio · N Peta
         </span>
         <span className="sm:hidden">
           D-Pad Sentuh Bergerak · Sentuh Kunci untuk Jawab Soal A/B

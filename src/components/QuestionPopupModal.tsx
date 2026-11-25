@@ -1,6 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock, RefreshCw, XCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  Flame,
+  Heart,
+  RefreshCw,
+  Sparkles,
+  XCircle,
+  Zap,
+} from 'lucide-react';
+import { GrantedPowerUpPayload, isMysteryChestId } from '../shared/mysteryChests';
 import { PublicMathQuestion } from '../shared/questionGenerator';
+import { evaluateStreakTier } from '../shared/streakSystem';
 import { retroAudio } from '../game/audio/RetroAudio';
 
 export interface QuestionFeedbackState {
@@ -9,11 +22,18 @@ export interface QuestionFeedbackState {
   explanation: string;
   pointsEarned: number;
   livesRemaining: number;
+  isMysteryChest?: boolean;
+  powerUpGranted?: GrantedPowerUpPayload | null;
+  streakCount?: number;
+  streakMultiplier?: number;
+  streakBonusPoints?: number;
+  streakMilestoneAnnouncement?: string | null;
 }
 
 interface QuestionPopupModalProps {
   question: PublicMathQuestion;
   feedback: QuestionFeedbackState | null;
+  currentStreak?: number;
   submitError?: string | null;
   canRetryOrClose?: boolean;
   onSelectAnswer: (option: 'A' | 'B' | 'TIMEOUT') => void;
@@ -24,6 +44,7 @@ interface QuestionPopupModalProps {
 export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
   question,
   feedback,
+  currentStreak = 0,
   submitError = null,
   canRetryOrClose = false,
   onSelectAnswer,
@@ -97,33 +118,63 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
 
   const isWaitingServer = Boolean((selectedChoice || timedOut) && !feedback && !submitError);
   const timerPercent = Math.max(0, Math.min(100, Math.round((secondsLeft / totalSeconds) * 100)));
+  const isMysteryChest = isMysteryChestId(question.keyId) || Boolean(feedback?.isMysteryChest);
+  const preStreakTier = evaluateStreakTier(currentStreak);
+  const postStreakTier = evaluateStreakTier(feedback?.streakCount ?? 0);
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="math-question-title"
+      data-testid="question-popup-modal"
       className={`fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pointer-events-auto transition-colors duration-300 ${
         feedback?.correct ? 'bg-black/50' : 'bg-black/80'
       }`}
     >
       <div
         className={`rpg-modal w-full max-w-xl max-h-[92dvh] overflow-y-auto rpg-scroll p-4 sm:p-6 text-slate-100 ${
-          feedback?.correct ? 'border-amber-300 shadow-[0_0_28px_rgba(250,204,21,0.35)]' : ''
+          feedback?.correct
+            ? 'border-amber-300 shadow-[0_0_28px_rgba(250,204,21,0.35)]'
+            : isMysteryChest
+            ? 'border-purple-400/90 shadow-[0_0_28px_rgba(168,85,247,0.3)]'
+            : ''
         }`}
       >
         {/* Top Metadata Header */}
         <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium text-amber-300">
             <span id="math-question-title" className="font-bold">
-              Soal #{question.questionNumber}
+              {isMysteryChest ? `Peti Misteri · Soal Bonus #${question.questionNumber}` : `Soal #${question.questionNumber}`}
             </span>
             <span aria-hidden="true" className="text-slate-500">·</span>
             <span className="text-slate-200">{question.categoryName}</span>
             <span aria-hidden="true" className="text-slate-500">·</span>
-            <span className="text-sky-300">
-              {question.category === 'custom' ? 'Soal Guru' : `Tingkat ${diffLabel}`}
+            <span className={isMysteryChest ? 'text-purple-300 font-semibold' : 'text-sky-300'}>
+              {isMysteryChest
+                ? 'Hadiah Power-Up Rahasia'
+                : question.category === 'custom'
+                ? 'Soal Guru'
+                : `Tingkat ${diffLabel}`}
             </span>
+            {currentStreak > 0 && !feedback && (
+              <>
+                <span aria-hidden="true" className="text-slate-500">·</span>
+                <span
+                  data-testid="modal-current-streak"
+                  className={`inline-flex items-center gap-1 font-bold ${
+                    preStreakTier.tier === 'blue_flame_7'
+                      ? 'text-sky-300'
+                      : preStreakTier.tier !== 'none'
+                      ? 'text-orange-300'
+                      : 'text-amber-300'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{preStreakTier.badgeLabel}</span>
+                </span>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 font-code text-sm font-bold tabular-nums shrink-0">
@@ -150,7 +201,9 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
         {/* Question Prompt */}
         <div className="rpg-well p-4 sm:p-5 mb-4 sm:mb-5 text-center">
           <p className="text-xs font-medium text-slate-400 mb-2">
-            Jawab dengan tepat untuk membuka kunci labirin
+            {isMysteryChest
+              ? 'Jawab soal bonus dengan tepat untuk membuka Peti Misteri & mendapatkan Item Power-Up!'
+              : 'Jawab dengan tepat untuk membuka kunci labirin'}
           </p>
           <h2
             data-testid="question-prompt"
@@ -220,18 +273,91 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
                     <>
                       <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" aria-hidden="true" />
                       <span>
-                        Jawaban Benar! +{feedback.pointsEarned} Poin & Kunci Didapatkan
+                        {feedback.isMysteryChest && feedback.powerUpGranted
+                          ? `Peti Misteri Terbuka! +${feedback.pointsEarned} Poin & ${feedback.powerUpGranted.label}`
+                          : `Jawaban Benar! +${feedback.pointsEarned} Poin & Kunci Didapatkan`}
                       </span>
                     </>
                   ) : (
                     <>
                       <XCircle className="w-4 h-4 text-red-300 shrink-0" aria-hidden="true" />
                       <span>
-                        Jawaban Salah — Nyawa Tersisa: {feedback.livesRemaining}
+                        {feedback.isMysteryChest
+                          ? `Jawaban Belum Tepat — Peti Tetap Terkunci (Nyawa Aman: ${feedback.livesRemaining} HP)`
+                          : `Jawaban Salah — Nyawa Tersisa: ${feedback.livesRemaining}`}
                       </span>
                     </>
                   )}
                 </p>
+                {feedback.correct && feedback.powerUpGranted && (
+                  <div
+                    data-testid="powerup-granted-banner"
+                    className="mt-1.5 rounded bg-[#090D15]/85 border border-amber-400/70 px-3 py-2 text-xs text-amber-100 flex items-center gap-2"
+                  >
+                    {feedback.powerUpGranted.type === 'torch_sight' ? (
+                      <Flame className="w-4 h-4 text-amber-300 shrink-0" aria-hidden="true" />
+                    ) : feedback.powerUpGranted.type === 'speed_boots' ? (
+                      <Zap className="w-4 h-4 text-sky-300 shrink-0" aria-hidden="true" />
+                    ) : (
+                      <Heart className="w-4 h-4 text-rose-400 fill-rose-400 shrink-0" aria-hidden="true" />
+                    )}
+                    <div>
+                      <div className="font-bold text-amber-300">
+                        Item Power-Up Aktif: {feedback.powerUpGranted.label}
+                      </div>
+                      <div className="text-[11px] text-slate-200">
+                        {feedback.powerUpGranted.description}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {feedback.correct && (feedback.streakCount ?? 0) >= 2 && (
+                  <div
+                    data-testid="streak-feedback-banner"
+                    className={`mt-1.5 rounded bg-[#090D15]/88 border px-3 py-2 text-xs flex items-center gap-2 ${
+                      postStreakTier.tier === 'blue_flame_7'
+                        ? 'border-sky-400/80 text-sky-100'
+                        : postStreakTier.tier !== 'none'
+                        ? 'border-orange-400/80 text-orange-100'
+                        : 'border-amber-400/60 text-amber-100'
+                    }`}
+                  >
+                    <Flame
+                      className={`w-4 h-4 shrink-0 ${
+                        postStreakTier.tier === 'blue_flame_7'
+                          ? 'text-sky-300'
+                          : postStreakTier.tier !== 'none'
+                          ? 'text-orange-400'
+                          : 'text-amber-300'
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <div
+                        className={`font-bold ${
+                          postStreakTier.tier === 'blue_flame_7'
+                            ? 'text-sky-300'
+                            : postStreakTier.tier !== 'none'
+                            ? 'text-orange-300'
+                            : 'text-amber-300'
+                        }`}
+                      >
+                        {postStreakTier.tier !== 'none'
+                          ? `Mode Api Aktif: ${postStreakTier.badgeLabel}`
+                          : `${feedback.streakCount} Jawaban Benar Beruntun!`}
+                      </div>
+                      <div className="text-[11px] text-slate-200">
+                        {postStreakTier.tier !== 'none'
+                          ? `+${feedback.streakBonusPoints ?? 0} Poin Bonus Combo (${postStreakTier.multiplierLabel})! Karaktermu menyala dengan ${
+                              postStreakTier.auraType === 'blue_flame'
+                                ? 'Aura Api Biru'
+                                : 'Aura Api Emas'
+                            }!`
+                          : '1 jawaban benar lagi untuk mengaktifkan COMBO x1.5 Poin & Aura Api Emas!'}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <p className="text-xs text-slate-200/90 leading-relaxed">
                   Pembahasan: {feedback.explanation}
                 </p>
@@ -297,8 +423,17 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
             Memeriksa jawaban dengan server...
           </div>
         ) : (
-          <p className="text-center text-xs text-slate-400">
-            Pilih A atau B · Benar membuka kunci · Salah mengurangi 1 nyawa
+          <p className="text-center text-xs text-slate-400 flex items-center justify-center gap-1.5">
+            {isMysteryChest ? (
+              <>
+                <Sparkles className="w-3.5 h-3.5 text-purple-300 shrink-0" aria-hidden="true" />
+                <span>
+                  Pilih A atau B · Benar mendapat Power-Up (Obor Terang / Sepatu Kilat / Perisai Hati) · Salah tidak mengurangi nyawa
+                </span>
+              </>
+            ) : (
+              <span>Pilih A atau B · Benar membuka kunci · Salah mengurangi 1 nyawa</span>
+            )}
           </p>
         )}
       </div>

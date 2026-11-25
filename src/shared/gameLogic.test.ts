@@ -1071,7 +1071,106 @@ test('QR Code Room Join links avoid ais-dev 404s, support custom deploy URLs, ha
   assert.ok(dataUrl.startsWith('data:image/png;base64,'), 'QR data URL must be a valid PNG base64 URI');
 });
 
+import {
+  SPEED_BOOTS_MULTIPLIER,
+  TORCH_VISION_MULTIPLIER,
+  evaluateActivePowerUps,
+  isChestAvailableForPlayer,
+  isMysteryChestId,
+} from './mysteryChests';
 
+test('Mystery Chests spawn in walkable secret room corners and Power-Ups compute vision & speed multipliers', () => {
+  assert.equal(isMysteryChestId('chest-1'), true);
+  assert.equal(isMysteryChestId('key-1'), false);
 
+  const maze = generateProceduralMaze({ level: 1, keyCount: 5, seed: 7788 });
+  const chests = maze.chests ?? [];
+  assert.equal(chests.length, maze.secretRooms.length);
+
+  for (let i = 0; i < chests.length; i++) {
+    const chest = chests[i];
+    const room = maze.secretRooms[i];
+    assert.equal(chest.id, `chest-${i + 1}`);
+    assert.equal(isWalkableTile(maze.grid[chest.tileY][chest.tileX]), true);
+    assert.ok(
+      chest.tileX >= room.x &&
+        chest.tileX < room.x + room.width &&
+        chest.tileY >= room.y &&
+        chest.tileY < room.y + room.height,
+      'Chest must be located inside its secret room'
+    );
+    assert.equal(isChestAvailableForPlayer(chest, 'plr-1'), true);
+  }
+
+  // Evaluate active Obor Terang (+65% sight radius) and Sepatu Kilat (+45% movement speed)
+  const now = 100_000;
+  const buffs = evaluateActivePowerUps({
+    torchExpiresAt: now + 20_000,
+    speedExpiresAt: now + 15_000,
+    nowMs: now,
+  });
+  assert.equal(buffs.torchRemainingSeconds, 20);
+  assert.equal(buffs.speedRemainingSeconds, 15);
+  assert.equal(buffs.visionMultiplier, TORCH_VISION_MULTIPLIER);
+  assert.equal(buffs.speedMultiplier, SPEED_BOOTS_MULTIPLIER);
+
+  // Expired buffs reset to 1.0x
+  const expired = evaluateActivePowerUps({
+    torchExpiresAt: now - 100,
+    speedExpiresAt: null,
+    nowMs: now,
+  });
+  assert.equal(expired.torchRemainingSeconds, 0);
+  assert.equal(expired.speedRemainingSeconds, 0);
+  assert.equal(expired.visionMultiplier, 1);
+  assert.equal(expired.speedMultiplier, 1);
+});
+
+import {
+  buildStreakMilestoneAnnouncement,
+  computeStreakQuestionPoints,
+  evaluateStreakTier,
+} from './streakSystem';
+
+test('Math Streak Multiplier computes COMBO 3x (x1.5), ON FIRE 5x (x2.0), API BIRU 7x (x2.5) and announcements', () => {
+  // Streak 0..2: 1.0x multiplier, no flame aura
+  assert.equal(evaluateStreakTier(0).tier, 'none');
+  assert.equal(evaluateStreakTier(2).multiplier, 1.0);
+  assert.equal(evaluateStreakTier(2).auraType, 'none');
+  assert.equal(buildStreakMilestoneAnnouncement('Arya Ksatria', 2), null);
+
+  // Streak 3: COMBO x1.5 + Golden Flame Aura + announcement
+  const t3 = evaluateStreakTier(3);
+  assert.equal(t3.tier, 'combo_3');
+  assert.equal(t3.multiplier, 1.5);
+  assert.equal(t3.auraType, 'gold_flame');
+  const pts3 = computeStreakQuestionPoints({ basePoints: 150, newStreakCount: 3 });
+  assert.equal(pts3.totalPoints, 225);
+  assert.equal(pts3.bonusStreakPoints, 75);
+  assert.match(buildStreakMilestoneAnnouncement('Arya Ksatria', 3) ?? '', /COMBO x1\.5/);
+
+  // Streak 5: ON FIRE x2.0 + Golden Flame Aura + classroom ON FIRE announcement
+  const t5 = evaluateStreakTier(5);
+  assert.equal(t5.tier, 'on_fire_5');
+  assert.equal(t5.multiplier, 2.0);
+  assert.equal(t5.auraType, 'gold_flame');
+  const pts5 = computeStreakQuestionPoints({ basePoints: 150, newStreakCount: 5 });
+  assert.equal(pts5.totalPoints, 300);
+  assert.equal(pts5.bonusStreakPoints, 150);
+  assert.match(
+    buildStreakMilestoneAnnouncement('Arya Ksatria', 5) ?? '',
+    /Arya Ksatria sedang ON FIRE \(5 Jawaban Benar Beruntun/
+  );
+
+  // Streak 7: API BIRU x2.5 + Blue Flame Aura
+  const t7 = evaluateStreakTier(7);
+  assert.equal(t7.tier, 'blue_flame_7');
+  assert.equal(t7.multiplier, 2.5);
+  assert.equal(t7.auraType, 'blue_flame');
+  const pts7 = computeStreakQuestionPoints({ basePoints: 150, newStreakCount: 7 });
+  assert.equal(pts7.totalPoints, 375);
+  assert.equal(pts7.bonusStreakPoints, 225);
+  assert.match(buildStreakMilestoneAnnouncement('Arya Ksatria', 7) ?? '', /AURA API BIRU/);
+});
 
 

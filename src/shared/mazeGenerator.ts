@@ -1,4 +1,5 @@
 import { KeyType, MAP_LEVELS, TileType } from './constants';
+import { MYSTERY_POWER_UP_ORDER, MazeChestObject } from './mysteryChests';
 
 export interface MazeKeyObject {
   id: string;
@@ -35,6 +36,7 @@ export interface GeneratedMaze {
   spawnTile: { x: number; y: number };
   exitTile: { x: number; y: number };
   keys: MazeKeyObject[];
+  chests?: MazeChestObject[];
   secretRooms: MazeRoomRegion[];
   torches: { x: number; y: number }[];
 }
@@ -410,7 +412,50 @@ export function generateProceduralMaze(options: {
     }
   }
 
-  // 8. Place wall torches on wall tiles adjacent to walkable corridors
+  // 8. Place Mystery Chests in the corners of Secret Rooms
+  const chests: MazeChestObject[] = [];
+  for (let i = 0; i < secretRooms.length; i++) {
+    const room = secretRooms[i];
+    const cornerCandidates = [
+      { x: room.x + room.width - 1, y: room.y + room.height - 1 },
+      { x: room.x, y: room.y + room.height - 1 },
+      { x: room.x + room.width - 1, y: room.y },
+      { x: room.x, y: room.y },
+      { x: room.x + Math.floor(room.width / 2), y: room.y + Math.floor(room.height / 2) },
+    ];
+
+    let chosenSpot: { x: number; y: number } | null = null;
+    for (const spot of cornerCandidates) {
+      if (spot.x <= 0 || spot.x >= width - 1 || spot.y <= 0 || spot.y >= height - 1) continue;
+      if (spot.x === exitTile.x && spot.y === exitTile.y) continue;
+      if (spot.x === spawnTile.x && spot.y === spawnTile.y) continue;
+      if (keys.some((k) => k.tileX === spot.x && k.tileY === spot.y)) continue;
+      if (chests.some((c) => c.tileX === spot.x && c.tileY === spot.y)) continue;
+      if (isWalkableTile(grid[spot.y][spot.x])) {
+        chosenSpot = spot;
+        break;
+      }
+    }
+
+    if (chosenSpot) {
+      grid[chosenSpot.y][chosenSpot.x] = TileType.SECRET_FLOOR;
+      const rewardType = MYSTERY_POWER_UP_ORDER[chests.length % MYSTERY_POWER_UP_ORDER.length];
+      chests.push({
+        id: `chest-${chests.length + 1}`,
+        roomId: room.id,
+        roomName: room.name || `Ruang Rahasia #${i + 1}`,
+        rewardType,
+        tileX: chosenSpot.x,
+        tileY: chosenSpot.y,
+        x: chosenSpot.x * tileSize + tileSize / 2,
+        y: chosenSpot.y * tileSize + tileSize / 2,
+        openedBy: null,
+        openedByPlayers: [],
+      });
+    }
+  }
+
+  // 9. Place wall torches on wall tiles adjacent to walkable corridors
   const torches: { x: number; y: number }[] = [];
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
@@ -423,8 +468,12 @@ export function generateProceduralMaze(options: {
     }
   }
 
-  // 9. Final verification check that every key + exitTile is reachable
-  const allTargets = [exitTile, ...keys.map((k) => ({ x: k.tileX, y: k.tileY }))];
+  // 10. Final verification check that every key, mystery chest, and exitTile is reachable
+  const allTargets = [
+    exitTile,
+    ...keys.map((k) => ({ x: k.tileX, y: k.tileY })),
+    ...chests.map((c) => ({ x: c.tileX, y: c.tileY })),
+  ];
   const validation = validateMazeReachability(grid, spawnTile, allTargets);
   if (!validation.valid) {
     // Carve direct safety corridor if needed (guaranteed fallback)
@@ -457,6 +506,7 @@ export function generateProceduralMaze(options: {
     spawnTile,
     exitTile,
     keys,
+    chests,
     secretRooms,
     torches,
   };

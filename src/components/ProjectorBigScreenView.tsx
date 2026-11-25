@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Clock,
   Crown,
   DoorOpen,
+  Heart,
   KeyRound,
   Maximize,
   Minimize,
@@ -68,6 +70,8 @@ export interface ProjectorBigScreenViewProps {
   activeEmotesRef: React.MutableRefObject<Map<string, ActiveOverheadEmote>>;
   onExitProjectorMode: () => void;
   onStartGameFromLobby?: () => void;
+  onTeacherAddTime?: () => void;
+  onTeacherRestoreHeart?: () => void;
 }
 
 function getModeLabel(mode: GameMode): string {
@@ -212,6 +216,8 @@ export const ProjectorBigScreenView: React.FC<ProjectorBigScreenViewProps> = ({
   activeEmotesRef,
   onExitProjectorMode,
   onStartGameFromLobby,
+  onTeacherAddTime,
+  onTeacherRestoreHeart,
 }) => {
   const stageContainerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -696,6 +702,36 @@ export const ProjectorBigScreenView: React.FC<ProjectorBigScreenViewProps> = ({
 
         {/* Zone 3: Minimal, Unobtrusive TV Controls */}
         <div className="flex items-center gap-2 shrink-0">
+          {!isLobbyWaiting && (roomStatus === 'playing' || roomStatus === 'paused') && onTeacherAddTime && (
+            <button
+              type="button"
+              data-testid="projector-add-time-btn"
+              title="Hadiah Waktu Guru: Tambah +60 Detik untuk Kelas"
+              onClick={() => {
+                retroAudio.playButtonClick();
+                onTeacherAddTime();
+              }}
+              className="min-h-[40px] px-3 py-2 rounded-md bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-400/75 text-xs font-bold text-emerald-200 flex items-center gap-1.5 whitespace-nowrap transition-colors"
+            >
+              <Clock className="w-3.5 h-3.5 text-emerald-300 shrink-0" aria-hidden="true" />
+              <span>+60d Waktu</span>
+            </button>
+          )}
+          {!isLobbyWaiting && (roomStatus === 'playing' || roomStatus === 'paused') && onTeacherRestoreHeart && (
+            <button
+              type="button"
+              data-testid="projector-heal-class-btn"
+              title="Bantuan Guru: Pulihkan +1 Hati Kelas & Hidupkan Kembali Siswa Tereliminasi"
+              onClick={() => {
+                retroAudio.playButtonClick();
+                onTeacherRestoreHeart();
+              }}
+              className="min-h-[40px] px-3 py-2 rounded-md bg-rose-950/90 hover:bg-rose-900 border border-rose-400/75 text-xs font-bold text-rose-100 flex items-center gap-1.5 whitespace-nowrap transition-colors"
+            >
+              <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400 shrink-0" aria-hidden="true" />
+              <span>+1 HP Kelas</span>
+            </button>
+          )}
           {!isLobbyWaiting && (
             <button
               type="button"

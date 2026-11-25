@@ -538,12 +538,28 @@ async function startServer() {
       emitRoomState(room, io);
     });
 
+    const ensureTeacherControl = (
+      room: GameRoom,
+      payloadPlayerId?: string
+    ): boolean => {
+      const authorized = roomManager.isTeacherAuthorized(room, {
+        playerId: currentPlayerId || payloadPlayerId,
+        socketId: socket.id,
+      });
+      if (!authorized) {
+        socket.emit(SOCKET_EVENTS.ROOM_ERROR, {
+          message: 'Hanya Guru yang dapat menjeda, memulai ulang, atau mengakhiri permainan.',
+        });
+      }
+      return authorized;
+    };
+
     // 4. TEACHER: UPDATE ROOM SETTINGS
     socket.on(
       SOCKET_EVENTS.UPDATE_SETTINGS,
-      (payload: { roomCode: string; settings: Partial<RoomSettings> }) => {
+      (payload: { roomCode: string; playerId?: string; settings: Partial<RoomSettings> }) => {
         const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
-        if (!room) return;
+        if (!room || !ensureTeacherControl(room, payload?.playerId)) return;
 
         room.settings = sanitizeRoomSettings(room.settings, payload.settings);
 
@@ -558,29 +574,33 @@ async function startServer() {
     );
 
     // 5. TEACHER: LOCK / UNLOCK ROOM
-    socket.on(SOCKET_EVENTS.LOCK_ROOM, (payload: { roomCode: string; locked?: boolean }) => {
-      const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
-      if (!room) return;
-      room.locked = payload?.locked !== undefined ? Boolean(payload.locked) : !room.locked;
-      addSystemChat(
-        room,
-        io,
-        room.locked ? 'Room telah dikunci oleh Guru.' : 'Room dibuka kembali oleh Guru.'
-      );
-      roomManager.persistRoom(room);
-      emitRoomState(room, io);
-    });
+    socket.on(
+      SOCKET_EVENTS.LOCK_ROOM,
+      (payload: { roomCode: string; playerId?: string; locked?: boolean }) => {
+        const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
+        if (!room || !ensureTeacherControl(room, payload?.playerId)) return;
+        room.locked = payload?.locked !== undefined ? Boolean(payload.locked) : !room.locked;
+        addSystemChat(
+          room,
+          io,
+          room.locked ? 'Room telah dikunci oleh Guru.' : 'Room dibuka kembali oleh Guru.'
+        );
+        roomManager.persistRoom(room);
+        emitRoomState(room, io);
+      }
+    );
 
     // 6. TEACHER: ASSIGN TEAMS (Random or Manual)
     socket.on(
       SOCKET_EVENTS.ASSIGN_TEAMS,
       (payload: {
         roomCode: string;
+        playerId?: string;
         mode: 'random' | 'manual';
         manualMap?: Record<string, TeamId>;
       }) => {
         const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
-        if (!room) return;
+        if (!room || !ensureTeacherControl(room, payload?.playerId)) return;
         const activeTeams = getActiveTeamsForRoom(room.settings);
 
         if (payload.mode === 'manual' && payload.manualMap) {
@@ -609,51 +629,124 @@ async function startServer() {
     );
 
     // 7. TEACHER: START / PAUSE / RESUME / RESTART / END GAME
-    socket.on(SOCKET_EVENTS.START_GAME, (payload: { roomCode: string }) => {
-      const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
-      if (!room) return;
-      roomManager.resetRoomForNewGame(room);
-      room.status = 'playing';
-      addSystemChat(room, io, 'Permainan dimulai! Jelajahi labirin dan temukan kunci matematika!');
-      roomManager.persistRoom(room);
-      emitRoomState(room, io, SOCKET_EVENTS.START_GAME);
-      emitRoomState(room, io, SOCKET_EVENTS.ROOM_STATE);
-    });
+    socket.on(
+      SOCKET_EVENTS.START_GAME,
+      (payload: { roomCode: string; playerId?: string }) => {
+        const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
+        if (!room) return;
+        const canStart =
+          roomManager.isTeacherAuthorized(room, {
+            playerId: currentPlayerId || payload?.playerId,
+            socketId: socket.id,
+          }) ||
+          (room.status === 'lobby' && socket.id === room.teacherSocketId);
+        if (!canStart) {
+          socket.emit(SOCKET_EVENTS.ROOM_ERROR, {
+            message: 'Hanya Guru yang dapat memulai permainan.',
+          });
+          return;
+        }
+        roomManager.resetRoomForNewGame(room);
+        room.status = 'playing';
+        addSystemChat(room, io, 'Permainan dimulai! Jelajahi labirin dan temukan kunci matematika!');
+        roomManager.persistRoom(room);
+        emitRoomState(room, io, SOCKET_EVENTS.START_GAME);
+        emitRoomState(room, io, SOCKET_EVENTS.ROOM_STATE);
+      }
+    );
 
-    socket.on(SOCKET_EVENTS.PAUSE_GAME, (payload: { roomCode: string }) => {
-      const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
-      if (!room || room.status !== 'playing') return;
-      room.status = 'paused';
-      addSystemChat(room, io, 'Permainan dijeda (Paused) oleh Guru.');
-      roomManager.persistRoom(room);
-      emitRoomState(room, io);
-    });
+    socket.on(
+      SOCKET_EVENTS.PAUSE_GAME,
+      (payload: { roomCode: string; playerId?: string }) => {
+        const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
+        if (!room || room.status !== 'playing') return;
+        if (!ensureTeacherControl(room, payload?.playerId)) return;
+        room.status = 'paused';
+        addSystemChat(room, io, 'Permainan dijeda (Paused) oleh Guru.');
+        roomManager.persistRoom(room);
+        emitRoomState(room, io);
+      }
+    );
 
-    socket.on(SOCKET_EVENTS.RESUME_GAME, (payload: { roomCode: string }) => {
-      const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
-      if (!room || room.status !== 'paused') return;
-      room.status = 'playing';
-      addSystemChat(room, io, 'Permainan dilanjutkan!');
-      roomManager.persistRoom(room);
-      emitRoomState(room, io);
-    });
+    socket.on(
+      SOCKET_EVENTS.RESUME_GAME,
+      (payload: { roomCode: string; playerId?: string }) => {
+        const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
+        if (!room || room.status !== 'paused') return;
+        if (!ensureTeacherControl(room, payload?.playerId)) return;
+        room.status = 'playing';
+        addSystemChat(room, io, 'Permainan dilanjutkan oleh Guru!');
+        roomManager.persistRoom(room);
+        emitRoomState(room, io);
+      }
+    );
 
-    socket.on(SOCKET_EVENTS.RESTART_GAME, (payload: { roomCode: string }) => {
-      const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
-      if (!room) return;
-      roomManager.resetRoomForNewGame(room);
-      room.status = 'playing';
-      addSystemChat(room, io, 'Permainan dimulai ulang dengan labirin baru!');
-      roomManager.persistRoom(room);
-      emitRoomState(room, io, SOCKET_EVENTS.START_GAME);
-      emitRoomState(room, io, SOCKET_EVENTS.ROOM_STATE);
-    });
+    socket.on(
+      SOCKET_EVENTS.RESTART_GAME,
+      (payload: { roomCode: string; playerId?: string }) => {
+        const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
+        if (!room) return;
+        if (!ensureTeacherControl(room, payload?.playerId)) return;
+        roomManager.resetRoomForNewGame(room);
+        room.status = 'playing';
+        addSystemChat(room, io, 'Permainan dimulai ulang oleh Guru dengan labirin baru!');
+        roomManager.persistRoom(room);
+        emitRoomState(room, io, SOCKET_EVENTS.START_GAME);
+        emitRoomState(room, io, SOCKET_EVENTS.ROOM_STATE);
+      }
+    );
 
-    socket.on(SOCKET_EVENTS.END_GAME, (payload: { roomCode: string; reason?: string }) => {
-      const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
-      if (!room) return;
-      finalizeGameRoom(room, io, payload?.reason || 'Diakhiri oleh Guru.');
-    });
+    socket.on(
+      SOCKET_EVENTS.END_GAME,
+      (payload: { roomCode: string; playerId?: string; reason?: string }) => {
+        const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
+        if (!room) return;
+        if (!ensureTeacherControl(room, payload?.playerId)) return;
+        finalizeGameRoom(room, io, payload?.reason || 'Diakhiri oleh Guru.');
+      }
+    );
+
+    socket.on(
+      SOCKET_EVENTS.TEACHER_ADD_TIME,
+      (payload: { roomCode: string; playerId?: string; seconds?: number }) => {
+        const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
+        if (!room || (room.status !== 'playing' && room.status !== 'paused')) return;
+        if (!ensureTeacherControl(room, payload?.playerId)) return;
+        const res = roomManager.addBonusTime(room, payload?.seconds ?? 60);
+        addSystemChat(room, io, res.systemNote);
+        io.to(room.code).emit(SOCKET_EVENTS.GAME_TICK, {
+          remainingSeconds: room.remainingSeconds,
+        });
+        io.to(room.code).emit(SOCKET_EVENTS.TEACHER_AID_BROADCAST, {
+          kind: 'time',
+          bannerText: `★ +${res.addedSeconds} DETIK! ★`,
+          subText: 'HADIAH WAKTU GURU',
+          message: res.systemNote,
+        });
+        emitRoomState(room, io);
+      }
+    );
+
+    socket.on(
+      SOCKET_EVENTS.TEACHER_RESTORE_HEART,
+      (payload: { roomCode: string; playerId?: string }) => {
+        const room = roomManager.resolveRoom(payload?.roomCode || currentRoomCode);
+        if (!room || (room.status !== 'playing' && room.status !== 'paused')) return;
+        if (!ensureTeacherControl(room, payload?.playerId)) return;
+        const res = roomManager.restoreClassHeart(room);
+        addSystemChat(room, io, res.systemNote);
+        io.to(room.code).emit(SOCKET_EVENTS.TEACHER_AID_BROADCAST, {
+          kind: 'heart',
+          bannerText: '★ +1 HATI KELAS! ★',
+          subText:
+            res.revivedCount > 0
+              ? `${res.revivedCount} SISWA AKTIF KEMBALI`
+              : 'PEMULIHAN HP KELAS',
+          message: res.systemNote,
+        });
+        emitRoomState(room, io);
+      }
+    );
 
     // 8. REAL-TIME POSITION SYNC (Server-Validated & Throttled)
     socket.on(
@@ -717,7 +810,7 @@ async function startServer() {
       }
     );
 
-    // 9. REQUEST MATH QUESTION WHEN TOUCHING A KEY
+    // 9. REQUEST MATH QUESTION WHEN TOUCHING A KEY OR MYSTERY CHEST
     socket.on(
       SOCKET_EVENTS.REQUEST_KEY_QUESTION,
       (payload: { roomCode?: string; playerId?: string; keyId: string }) => {
@@ -726,31 +819,41 @@ async function startServer() {
         const player = room.players.get(payload?.playerId || currentPlayerId || '');
         if (!player || player.status !== 'active') return;
 
-        const keyObj = room.maze.keys.find((k) => k.id === payload?.keyId);
-        if (!keyObj) return;
+        const requestedId = payload?.keyId || '';
+        let targetId = '';
 
-        if (room.settings.mode === 'coop' && keyObj.collectedBy) return;
-        if (room.settings.mode === 'competitive' && keyObj.collectedByPlayers.includes(player.id)) {
-          return;
-        }
-        if (
-          room.settings.mode === 'team' &&
-          player.teamId &&
-          keyObj.collectedByTeams.includes(player.teamId)
-        ) {
-          return;
+        if (requestedId.startsWith('chest-')) {
+          const chestObj = (room.maze.chests ?? []).find((c) => c.id === requestedId);
+          if (!chestObj || chestObj.openedByPlayers.includes(player.id)) return;
+          targetId = chestObj.id;
+        } else {
+          const keyObj = room.maze.keys.find((k) => k.id === requestedId);
+          if (!keyObj) return;
+
+          if (room.settings.mode === 'coop' && keyObj.collectedBy) return;
+          if (room.settings.mode === 'competitive' && keyObj.collectedByPlayers.includes(player.id)) {
+            return;
+          }
+          if (
+            room.settings.mode === 'team' &&
+            player.teamId &&
+            keyObj.collectedByTeams.includes(player.teamId)
+          ) {
+            return;
+          }
+          targetId = keyObj.id;
         }
 
-        // If the same key is re-requested while already open, re-emit the existing question
+        // If the same key/chest is re-requested while already open, re-emit the existing question
         // instead of overwriting it mid-answer.
         if (player.activeQuestion) {
-          if (player.activeQuestion.keyId === keyObj.id) {
+          if (player.activeQuestion.keyId === targetId) {
             const existing = player.activeQuestion.question;
             const elapsedSec = Math.floor((Date.now() - player.activeQuestion.issuedAt) / 1000);
             const remainingTimer = Math.max(5, room.settings.questionTimerSeconds - elapsedSec);
             socket.emit(SOCKET_EVENTS.RECEIVE_KEY_QUESTION, {
               id: existing.id,
-              keyId: keyObj.id,
+              keyId: targetId,
               questionNumber: existing.questionNumber,
               category: existing.category,
               categoryName: existing.categoryName,
@@ -775,7 +878,7 @@ async function startServer() {
         });
 
         player.activeQuestion = {
-          keyId: keyObj.id,
+          keyId: targetId,
           question: q,
           issuedAt: Date.now(),
         };
@@ -783,7 +886,7 @@ async function startServer() {
 
         const publicQuestion: PublicMathQuestion = {
           id: q.id,
-          keyId: keyObj.id,
+          keyId: targetId,
           questionNumber: q.questionNumber,
           category: q.category,
           categoryName: q.categoryName,
@@ -883,6 +986,7 @@ async function startServer() {
           keysCollected: player.keysCollected,
           completedLevel: true,
           remainingSeconds: room.remainingSeconds,
+          bonusPoints: player.extraBonusPoints ?? 0,
         });
 
         addSystemChat(

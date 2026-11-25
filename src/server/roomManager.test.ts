@@ -420,5 +420,347 @@ test('RoomManager persists, updates, and normalizes room biome themes across res
   }
 });
 
+test('RoomManager.isTeacherAuthorized strictly authorizes only the room teacher and blocks student role spoofing', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db = new GameDatabase(tmp.file);
+    const mgr = new RoomManager(db);
 
+    const room = mgr.createRoom({
+      teacherId: 'teacher-host-1',
+      teacherName: 'Pak Hendra',
+      socketId: 'sock-teacher-host',
+    });
+
+    const studentJoin = mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'student-regular-1',
+      socketId: 'sock-student-1',
+      name: 'Rafi',
+      role: 'student',
+    });
+    assert.equal(studentJoin.ok, true);
+
+    // 1. Teacher is authorized by playerId or teacherSocketId
+    assert.equal(
+      mgr.isTeacherAuthorized(room, { playerId: 'teacher-host-1', socketId: 'sock-teacher-host' }),
+      true
+    );
+    assert.equal(
+      mgr.isTeacherAuthorized(room, { playerId: null, socketId: 'sock-teacher-host' }),
+      true
+    );
+
+    // 2. Student is rejected even if they pass their own playerId or student socketId
+    assert.equal(
+      mgr.isTeacherAuthorized(room, { playerId: 'student-regular-1', socketId: 'sock-student-1' }),
+      false
+    );
+    assert.equal(
+      mgr.isTeacherAuthorized(room, { playerId: null, socketId: 'sock-student-1' }),
+      false
+    );
+
+    // 3. Another player attempting to join with role='teacher' and a different playerId is rejected
+    const spoofJoin = mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'student-regular-1',
+      socketId: 'sock-student-1',
+      name: 'Rafi Spoof',
+      role: 'teacher',
+    });
+    assert.equal(spoofJoin.ok, false);
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+test('RoomManager.addBonusTime and RoomManager.restoreClassHeart grant +60s time and revive eliminated students', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db = new GameDatabase(tmp.file);
+    const mgr = new RoomManager(db);
+
+    const room = mgr.createRoom({
+      teacherId: 'teacher-aid-1',
+      teacherName: 'Bu Lestari',
+      socketId: 'sock-teacher-aid',
+      settings: { lives: 3, durationSeconds: 180 },
+    });
+
+    mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'stu-eliminated',
+      socketId: 'sock-s1',
+      name: 'Bima',
+      role: 'student',
+    });
+    mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'stu-injured',
+      socketId: 'sock-s2',
+      name: 'Citra',
+      role: 'student',
+    });
+    mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'stu-escaped',
+      socketId: 'sock-s3',
+      name: 'Damar',
+      role: 'student',
+    });
+
+    room.status = 'playing';
+    room.remainingSeconds = 45;
+
+    // 1. Add +60 seconds bonus time
+    const timeRes = mgr.addBonusTime(room, 60);
+    assert.equal(timeRes.addedSeconds, 60);
+    assert.equal(timeRes.remainingSeconds, 105);
+    assert.equal(room.remainingSeconds, 105);
+    assert.match(timeRes.systemNote, /\+60 detik/);
+
+    // 2. Prepare student states: Bima is eliminated (0 HP), Citra is active (2/3 HP), Damar already escaped (1/3 HP)
+    const bima = room.players.get('stu-eliminated')!;
+    bima.lives = 0;
+    bima.status = 'eliminated';
+
+    const citra = room.players.get('stu-injured')!;
+    citra.lives = 2;
+    citra.status = 'active';
+
+    const damar = room.players.get('stu-escaped')!;
+    damar.lives = 1;
+    damar.status = 'escaped';
+
+    const heartRes = mgr.restoreClassHeart(room);
+    assert.equal(heartRes.revivedCount, 1);
+    assert.equal(heartRes.healedCount, 2);
+
+    // Bima is revived back to active play with 1 HP
+    assert.equal(bima.status, 'active');
+    assert.equal(bima.lives, 1);
+
+    // Citra is healed from 2 to 3 HP (maxLives)
+    assert.equal(citra.status, 'active');
+    assert.equal(citra.lives, 3);
+
+    // Damar remains escaped
+    assert.equal(damar.status, 'escaped');
+    assert.equal(damar.lives, 1);
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+test('resolveSubmittedAnswer grades Mystery Chest bonus questions, grants Power-Ups, and preserves HP on wrong answers', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db = new GameDatabase(tmp.file);
+    const mgr = new RoomManager(db);
+    const room = mgr.createRoom({
+      teacherId: 'teacher-chest',
+      teacherName: 'Pak Arif',
+      socketId: 'sock-tc',
+      settings: { lives: 3 },
+    });
+    mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'stu-chest',
+      socketId: 'sock-sc',
+      name: 'Farhan',
+      role: 'student',
+    });
+
+    room.status = 'playing';
+    const player = room.players.get('stu-chest')!;
+    const chests = room.maze.chests ?? [];
+    assert.ok(chests.length >= 3, 'Expected at least 3 Mystery Chests in generated maze');
+
+    // 1. Wrong answer on chest-1 must NOT deduct player lives and keeps chest closed
+    const chest1 = chests[0];
+    const qWrong = generateMathQuestion({ difficulty: 'easy' });
+    const wrongOpt = qWrong.correctOption === 'A' ? 'B' : 'A';
+    player.activeQuestion = {
+      keyId: chest1.id,
+      question: qWrong,
+      issuedAt: Date.now() - 1200,
+    };
+
+    const wrongRes = resolveSubmittedAnswer({
+      room,
+      player,
+      payload: {
+        keyId: chest1.id,
+        questionId: qWrong.id,
+        selectedOption: wrongOpt,
+      },
+      database: db,
+    });
+    assert.equal(wrongRes.ack.ok, true);
+    assert.equal(wrongRes.result?.correct, false);
+    assert.equal(wrongRes.result?.isMysteryChest, true);
+    assert.equal(player.lives, 3, 'Wrong answer on bonus Mystery Chest must not deduct HP');
+    assert.equal(chest1.openedByPlayers.includes(player.id), false);
+
+    // 2. Correct answer on torch_sight chest grants Obor Terang (+20s)
+    const torchChest = chests.find((c) => c.rewardType === 'torch_sight')!;
+    const qTorch = generateMathQuestion({ difficulty: 'easy' });
+    player.activeQuestion = {
+      keyId: torchChest.id,
+      question: qTorch,
+      issuedAt: Date.now() - 1500,
+    };
+    const torchRes = resolveSubmittedAnswer({
+      room,
+      player,
+      payload: {
+        keyId: torchChest.id,
+        questionId: qTorch.id,
+        selectedOption: qTorch.correctOption,
+      },
+      database: db,
+    });
+    assert.equal(torchRes.result?.correct, true);
+    assert.equal(torchRes.result?.isMysteryChest, true);
+    assert.equal(torchRes.result?.powerUpGranted?.type, 'torch_sight');
+    assert.ok((player.torchExpiresAt ?? 0) > Date.now() + 15_000);
+    assert.equal(torchChest.openedByPlayers.includes(player.id), true);
+
+    // 3. Correct answer on speed_boots chest grants Sepatu Kilat (+15s)
+    const speedChest = chests.find((c) => c.rewardType === 'speed_boots')!;
+    const qSpeed = generateMathQuestion({ difficulty: 'easy' });
+    player.activeQuestion = {
+      keyId: speedChest.id,
+      question: qSpeed,
+      issuedAt: Date.now() - 1100,
+    };
+    const speedRes = resolveSubmittedAnswer({
+      room,
+      player,
+      payload: {
+        keyId: speedChest.id,
+        questionId: qSpeed.id,
+        selectedOption: qSpeed.correctOption,
+      },
+      database: db,
+    });
+    assert.equal(speedRes.result?.correct, true);
+    assert.equal(speedRes.result?.powerUpGranted?.type, 'speed_boots');
+    assert.ok((player.speedExpiresAt ?? 0) > Date.now() + 10_000);
+
+    // 4. Correct answer on heart_shield chest grants Perisai Hati (+1 bonus shield heart up to maxLives + 1)
+    const heartChest = chests.find((c) => c.rewardType === 'heart_shield')!;
+    const qHeart = generateMathQuestion({ difficulty: 'easy' });
+    player.activeQuestion = {
+      keyId: heartChest.id,
+      question: qHeart,
+      issuedAt: Date.now() - 1300,
+    };
+    const heartRes = resolveSubmittedAnswer({
+      room,
+      player,
+      payload: {
+        keyId: heartChest.id,
+        questionId: qHeart.id,
+        selectedOption: qHeart.correctOption,
+      },
+      database: db,
+    });
+    assert.equal(heartRes.result?.correct, true);
+    assert.equal(heartRes.result?.powerUpGranted?.type, 'heart_shield');
+    assert.equal(player.lives, 4);
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+test('resolveSubmittedAnswer increments currentStreak, applies x1.5 and x2.0 multipliers, announces ON FIRE, and resets streak on wrong answer', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db = new GameDatabase(tmp.file);
+    const mgr = new RoomManager(db);
+    const room = mgr.createRoom({
+      teacherId: 'teacher-streak',
+      teacherName: 'Bu Nadia',
+      socketId: 'sock-ts',
+      settings: { keyCount: 6, lives: 3 },
+    });
+    mgr.joinRoom({
+      roomCode: room.code,
+      playerId: 'stu-streak',
+      socketId: 'sock-ss',
+      name: 'Arya Ksatria',
+      role: 'student',
+    });
+
+    room.status = 'playing';
+    const player = room.players.get('stu-streak')!;
+
+    // Answer 5 keys consecutively correct
+    const earnedPerKey: number[] = [];
+    let fifthChats: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const key = room.maze.keys[i];
+      const q = generateMathQuestion({ difficulty: 'easy' });
+      player.activeQuestion = {
+        keyId: key.id,
+        question: q,
+        issuedAt: Date.now() - 1000,
+      };
+      const res = resolveSubmittedAnswer({
+        room,
+        player,
+        payload: {
+          keyId: key.id,
+          questionId: q.id,
+          selectedOption: q.correctOption,
+        },
+        database: db,
+      });
+      assert.equal(res.result?.correct, true);
+      assert.equal(res.result?.streakCount, i + 1);
+      earnedPerKey.push(res.result?.pointsEarned ?? 0);
+      if (i === 4) {
+        fifthChats = res.systemChats;
+      }
+    }
+
+    // Streak 1 & 2 earn 150 base pts; Streak 3 & 4 earn 225 pts (1.5x); Streak 5 earns 300 pts (2.0x)
+    assert.deepEqual(earnedPerKey, [150, 150, 225, 225, 300]);
+    assert.equal(player.currentStreak, 5);
+    assert.equal(player.bestStreak, 5);
+    assert.equal(player.score, 150 + 150 + 225 + 225 + 300);
+    assert.ok(
+      fifthChats.some((msg) => msg.includes('Arya Ksatria sedang ON FIRE (5 Jawaban Benar Beruntun')),
+      'Expected ON FIRE announcement on 5th consecutive correct answer'
+    );
+
+    // Wrong answer on 6th key resets currentStreak to 0 while preserving bestStreak = 5
+    const key6 = room.maze.keys[5];
+    const q6 = generateMathQuestion({ difficulty: 'easy' });
+    const wrongOpt = q6.correctOption === 'A' ? 'B' : 'A';
+    player.activeQuestion = {
+      keyId: key6.id,
+      question: q6,
+      issuedAt: Date.now() - 1000,
+    };
+    const wrongRes = resolveSubmittedAnswer({
+      room,
+      player,
+      payload: {
+        keyId: key6.id,
+        questionId: q6.id,
+        selectedOption: wrongOpt,
+      },
+      database: db,
+    });
+    assert.equal(wrongRes.result?.correct, false);
+    assert.equal(wrongRes.result?.streakCount, 0);
+    assert.equal(player.currentStreak, 0);
+    assert.equal(player.bestStreak, 5);
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
 

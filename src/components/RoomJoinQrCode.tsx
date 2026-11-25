@@ -245,7 +245,7 @@ export const RoomJoinQrModal: React.FC<RoomJoinQrModalProps> = ({
       aria-modal="true"
       aria-labelledby="qr-modal-title"
       data-testid="qr-join-modal"
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-start justify-center p-4 overflow-y-auto rpg-scroll"
       onClick={onClose}
     >
       <div

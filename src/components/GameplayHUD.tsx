@@ -7,9 +7,12 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Clock,
   Download,
   Eye,
   Flag,
+  Flame,
+  Heart,
   LogOut,
   Map as MapIcon,
   MessageSquare,
@@ -24,6 +27,7 @@ import {
   Volume2,
   VolumeX,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   GameMode,
@@ -34,7 +38,9 @@ import {
   TeamId,
 } from '../shared/constants';
 import { DEFAULT_MAZE_BIOME, getMazeBiomeTheme } from '../shared/biomeThemes';
+import { evaluateActivePowerUps } from '../shared/mysteryChests';
 import { LeaderboardEntry, TeamLeaderboardEntry } from '../shared/scoreSystem';
+import { evaluateStreakTier } from '../shared/streakSystem';
 import { SpectatorCameraMode } from '../shared/spectatorCamera';
 import { EMOTE_DEFINITIONS, EmoteId } from '../shared/emoteSystem';
 import { StudentAnalyticsPanel } from './StudentAnalyticsPanel';
@@ -53,6 +59,9 @@ interface GameplayHUDProps {
   teamId: TeamId | null;
   lives: number;
   maxLives: number;
+  torchExpiresAt?: number | null;
+  speedExpiresAt?: number | null;
+  currentStreak?: number;
   score: number;
   myKeysCollected: number;
   sharedKeysCollected: number;
@@ -80,6 +89,8 @@ interface GameplayHUDProps {
   onTogglePause: () => void;
   onSendChat: (text: string, type: 'chat' | 'emoji') => void;
   onTriggerEmote?: (emoteId: EmoteId) => void;
+  onTeacherAddTime?: () => void;
+  onTeacherRestoreHeart?: () => void;
   onTeacherEndGame: () => void;
   onTeacherRestartGame: () => void;
   onOpenProjectorMode?: () => void;
@@ -104,6 +115,9 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
   teamId,
   lives,
   maxLives,
+  torchExpiresAt = null,
+  speedExpiresAt = null,
+  currentStreak = 0,
   score,
   myKeysCollected,
   sharedKeysCollected,
@@ -131,6 +145,8 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
   onTogglePause,
   onSendChat,
   onTriggerEmote,
+  onTeacherAddTime,
+  onTeacherRestoreHeart,
   onTeacherEndGame,
   onTeacherRestartGame,
   onOpenProjectorMode,
@@ -143,7 +159,26 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
   const [liveFeedExpanded, setLiveFeedExpanded] = useState(true);
   const [customChat, setCustomChat] = useState('');
   const [seenChatCount, setSeenChatCount] = useState(chatHistory.length);
+  const [nowTickMs, setNowTickMs] = useState<number>(() => Date.now());
   const prevChatLenRef = useRef(chatHistory.length);
+
+  useEffect(() => {
+    const hasActiveTimedBuff =
+      (torchExpiresAt && torchExpiresAt > Date.now()) ||
+      (speedExpiresAt && speedExpiresAt > Date.now());
+    if (!hasActiveTimedBuff) return;
+    const id = window.setInterval(() => {
+      setNowTickMs(Date.now());
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [torchExpiresAt, speedExpiresAt]);
+
+  const activePowerUps = evaluateActivePowerUps({
+    torchExpiresAt,
+    speedExpiresAt,
+    nowMs: nowTickMs,
+  });
+  const streakTier = evaluateStreakTier(currentStreak);
 
   useEffect(() => {
     if (showChat) {
@@ -196,7 +231,7 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
       )}
 
       {/* TOP-LEFT PERIMETER CLUSTER: Vitality Hearts, Score, Keys, + Mobile Timer */}
-      <div className="fixed top-2 left-2 right-2 sm:right-auto sm:top-3 sm:left-3 pointer-events-auto flex flex-col gap-1.5 sm:max-w-lg">
+      <div className="fixed top-2 left-2 right-2 sm:right-auto sm:top-3 sm:left-3 pointer-events-auto flex flex-col gap-1.5 sm:max-w-[330px]">
         <div className="rpg-panel px-2.5 py-1.5 sm:px-3.5 sm:py-2 flex items-center justify-between sm:justify-start gap-2.5 sm:gap-5">
           {/* Player Identity & Vitality Pips */}
           <div className="min-w-0">
@@ -223,14 +258,15 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
               )}
             </div>
 
-            {/* Code-Authored SVG Heart Vitality Pips */}
+            {/* Code-Authored SVG Heart Vitality Pips (+ Perisai Hati Extra Shield Heart support) */}
             <div
               className="flex items-center gap-0.5 sm:gap-1 mt-1"
               aria-label={`Nyawa: ${lives} dari ${maxLives}`}
             >
               <span className="text-[10px] font-semibold text-slate-400 mr-1">HP</span>
-              {Array.from({ length: maxLives }, (_, i) => {
+              {Array.from({ length: Math.max(maxLives, lives) }, (_, i) => {
                 const isFull = i < lives;
+                const isBonusShield = i >= maxLives && isFull;
                 return (
                   <svg
                     key={i}
@@ -240,14 +276,14 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
                   >
                     <path
                       d="M12 21s-7.5-4.65-9.75-9.2C.6 8.45 2.7 4.5 6.6 4.5c2.1 0 3.9 1.2 5.4 3 1.5-1.8 3.3-3 5.4-3 3.9 0 6 3.95 4.35 7.3C19.5 16.35 12 21 12 21z"
-                      fill={isFull ? '#EF4444' : '#1E293B'}
+                      fill={isBonusShield ? '#FACC15' : isFull ? '#EF4444' : '#1E293B'}
                       stroke="#090D15"
                       strokeWidth="2"
                     />
                     {isFull && (
                       <path
                         d="M6.5 7.5c1.2 0 2.1.5 2.7 1.3"
-                        stroke="#FCA5A5"
+                        stroke={isBonusShield ? '#FEF08A' : '#FCA5A5'}
                         strokeWidth="1.8"
                         strokeLinecap="round"
                         fill="none"
@@ -305,6 +341,80 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
           </div>
         </div>
 
+        {/* Active Combo Streak ("Mode Api") & Mystery Chest Power-Ups Bar */}
+        {(currentStreak > 0 ||
+          activePowerUps.torchRemainingSeconds > 0 ||
+          activePowerUps.speedRemainingSeconds > 0 ||
+          lives > maxLives) && (
+          <div
+            data-testid="active-powerups-bar"
+            className="flex flex-wrap items-center gap-1.5 sm:max-w-[325px]"
+          >
+            {currentStreak > 0 && (
+              <div
+                data-testid="hud-streak-badge"
+                data-streak-tier={streakTier.tier}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-bold flex items-center gap-1.5 shadow-md border ${
+                  streakTier.tier === 'blue_flame_7'
+                    ? 'bg-sky-950/95 border-sky-400 text-sky-100 shadow-[0_0_14px_rgba(56,189,248,0.45)]'
+                    : streakTier.tier === 'on_fire_5'
+                    ? 'bg-orange-950/95 border-orange-400 text-orange-100 shadow-[0_0_14px_rgba(249,115,22,0.45)]'
+                    : streakTier.tier === 'combo_3'
+                    ? 'bg-amber-950/95 border-amber-400 text-amber-100 shadow-[0_0_12px_rgba(250,204,21,0.38)]'
+                    : 'bg-slate-900/90 border-amber-500/50 text-amber-200'
+                }`}
+              >
+                <Flame
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    streakTier.tier === 'blue_flame_7'
+                      ? 'text-sky-300'
+                      : streakTier.tier === 'on_fire_5'
+                      ? 'text-orange-400'
+                      : 'text-amber-300'
+                  }`}
+                  aria-hidden="true"
+                />
+                <span>{streakTier.badgeLabel}</span>
+              </div>
+            )}
+            {activePowerUps.torchRemainingSeconds > 0 && (
+              <div
+                data-testid="buff-torch-sight"
+                className="rounded-md bg-amber-950/92 border border-amber-400/80 px-2.5 py-1 text-[11px] font-bold text-amber-200 flex items-center gap-1.5 shadow-md"
+              >
+                <Flame className="w-3.5 h-3.5 text-amber-300 shrink-0" aria-hidden="true" />
+                <span>Obor Terang</span>
+                <span aria-hidden="true" className="text-amber-400/70">·</span>
+                <span className="font-code text-amber-300 tabular-nums">
+                  {activePowerUps.torchRemainingSeconds}d
+                </span>
+              </div>
+            )}
+            {activePowerUps.speedRemainingSeconds > 0 && (
+              <div
+                data-testid="buff-speed-boots"
+                className="rounded-md bg-sky-950/92 border border-sky-400/80 px-2.5 py-1 text-[11px] font-bold text-sky-200 flex items-center gap-1.5 shadow-md"
+              >
+                <Zap className="w-3.5 h-3.5 text-sky-300 shrink-0" aria-hidden="true" />
+                <span>Sepatu Kilat</span>
+                <span aria-hidden="true" className="text-sky-400/70">·</span>
+                <span className="font-code text-sky-300 tabular-nums">
+                  {activePowerUps.speedRemainingSeconds}d
+                </span>
+              </div>
+            )}
+            {lives > maxLives && (
+              <div
+                data-testid="buff-heart-shield"
+                className="rounded-md bg-rose-950/92 border border-rose-400/80 px-2.5 py-1 text-[11px] font-bold text-rose-100 flex items-center gap-1.5 shadow-md"
+              >
+                <Heart className="w-3.5 h-3.5 text-amber-300 fill-amber-300 shrink-0" aria-hidden="true" />
+                <span>Perisai Hati (+1 HP)</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Status Banner when Door Opens, Victory Sanctuary Lobby, or Spectator Mode (Desktop/Tablet) */}
         {isVictoryLobby ? (
           <div
@@ -337,18 +447,20 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
                   <span>Tabel Hasil Akhir</span>
                 </button>
               )}
-              <button
-                type="button"
-                data-testid="victory-lobby-play-again-btn"
-                onClick={() => {
-                  retroAudio.playButtonClick();
-                  onTeacherRestartGame();
-                }}
-                className="px-2.5 py-1 rounded bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/60 text-emerald-100 font-semibold text-[11px] flex items-center gap-1 transition-colors whitespace-nowrap"
-              >
-                <RotateCcw className="w-3 h-3 shrink-0" aria-hidden="true" />
-                <span>Main Lagi</span>
-              </button>
+              {playerRole === 'teacher' && (
+                <button
+                  type="button"
+                  data-testid="victory-lobby-play-again-btn"
+                  onClick={() => {
+                    retroAudio.playButtonClick();
+                    onTeacherRestartGame();
+                  }}
+                  className="px-2.5 py-1 rounded bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/60 text-emerald-100 font-semibold text-[11px] flex items-center gap-1 transition-colors whitespace-nowrap"
+                >
+                  <RotateCcw className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  <span>Main Lagi</span>
+                </button>
+              )}
               <button
                 type="button"
                 data-testid="return-to-menu-btn"
@@ -639,21 +751,41 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
               {muted ? <VolumeX className="w-4 h-4 text-slate-400" /> : <Volume2 className="w-4 h-4 text-amber-300" />}
             </button>
 
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-label="Menu Pause"
-              onClick={(e) => {
-                e.currentTarget.blur();
-                retroAudio.playButtonClick();
-                onTogglePause();
-              }}
-              className="min-h-[34px] px-2.5 py-1 rounded bg-[#1e293b] hover:bg-[#283548] text-amber-300 text-xs font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
-            >
-              {isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
-              <span className="sm:hidden">{isPaused ? 'Lanjut' : 'Pause'}</span>
-              <span className="hidden sm:inline">{isPaused ? 'Lanjut [P]' : 'Pause [P]'}</span>
-            </button>
+            {playerRole === 'teacher' ? (
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="hud-pause-btn"
+                aria-label="Menu Pause Guru"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  retroAudio.playButtonClick();
+                  onTogglePause();
+                }}
+                className="min-h-[34px] px-2.5 py-1 rounded bg-[#1e293b] hover:bg-[#283548] text-amber-300 text-xs font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+              >
+                {isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+                <span className="sm:hidden">{isPaused ? 'Lanjut' : 'Pause'}</span>
+                <span className="hidden sm:inline">{isPaused ? 'Lanjut [P]' : 'Pause [P]'}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="hud-leave-room-btn"
+                aria-label="Keluar ke Menu Utama"
+                title="Keluar ke Menu Utama"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  retroAudio.playButtonClick();
+                  onLeaveRoom();
+                }}
+                className="min-h-[34px] px-2.5 py-1 rounded bg-[#1e293b] hover:bg-red-950/90 border border-slate-700 hover:border-red-500/70 text-slate-200 hover:text-red-100 text-xs font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5 text-amber-300" aria-hidden="true" />
+                <span>Keluar</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -675,6 +807,36 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
             <span className="hidden sm:inline text-[11px] font-semibold text-amber-300 px-1.5">
               Kontrol Guru
             </span>
+            {!isVictoryLobby && onTeacherAddTime && (
+              <button
+                type="button"
+                data-testid="hud-teacher-add-time-btn"
+                title="Hadiah Waktu Guru: Tambah +60 Detik untuk Kelas"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  onTeacherAddTime();
+                }}
+                className="min-h-[30px] sm:min-h-[32px] px-2 sm:px-2.5 py-1 rounded bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-400/75 text-[11px] sm:text-xs font-bold text-emerald-200 flex items-center gap-1 whitespace-nowrap transition-colors"
+              >
+                <Clock className="w-3.5 h-3.5 text-emerald-300 shrink-0" aria-hidden="true" />
+                <span>+60d Waktu</span>
+              </button>
+            )}
+            {!isVictoryLobby && onTeacherRestoreHeart && (
+              <button
+                type="button"
+                data-testid="hud-teacher-heal-class-btn"
+                title="Bantuan Guru: Pulihkan +1 Hati Kelas & Hidupkan Kembali Siswa Tereliminasi"
+                onClick={() => {
+                  retroAudio.playButtonClick();
+                  onTeacherRestoreHeart();
+                }}
+                className="min-h-[30px] sm:min-h-[32px] px-2 sm:px-2.5 py-1 rounded bg-rose-950/90 hover:bg-rose-900 border border-rose-400/75 text-[11px] sm:text-xs font-bold text-rose-100 flex items-center gap-1 whitespace-nowrap transition-colors"
+              >
+                <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400 shrink-0" aria-hidden="true" />
+                <span>+1 HP Kelas</span>
+              </button>
+            )}
             {onOpenProjectorMode && (
               <button
                 type="button"
@@ -705,6 +867,7 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
             </button>
             <button
               type="button"
+              data-testid="hud-teacher-restart-btn"
               onClick={() => {
                 retroAudio.playButtonClick();
                 onTeacherRestartGame();
@@ -717,6 +880,7 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
             </button>
             <button
               type="button"
+              data-testid="hud-teacher-end-btn"
               onClick={() => {
                 retroAudio.playButtonClick();
                 onTeacherEndGame();
@@ -1155,40 +1319,85 @@ export const GameplayHUD: React.FC<GameplayHUDProps> = ({
             </div>
 
             <div className="flex flex-col gap-2.5">
-              <button
-                type="button"
-                onClick={() => {
-                  retroAudio.playButtonClick();
-                  onTogglePause();
-                }}
-                className="rpg-btn-gold w-full py-2.5 font-bold text-sm flex items-center justify-center gap-2"
-              >
-                <Play className="w-4 h-4 fill-current" aria-hidden="true" />
-                <span>Lanjutkan Permainan</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  retroAudio.playButtonClick();
-                  onTeacherRestartGame();
-                }}
-                className="rpg-btn-slate w-full py-2.5 text-slate-100 font-semibold text-sm flex items-center justify-center gap-2"
-              >
-                <RotateCcw className="w-4 h-4" aria-hidden="true" />
-                <span>Mulai Ulang Labirin</span>
-              </button>
-              <button
-                type="button"
-                data-testid="pause-end-game-btn"
-                onClick={() => {
-                  retroAudio.playButtonClick();
-                  onTeacherEndGame();
-                }}
-                className="rpg-btn-slate w-full py-2.5 text-amber-300 font-semibold text-xs flex items-center justify-center gap-2"
-              >
-                <Flag className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Selesaikan Sesi &amp; Lihat Hasil</span>
-              </button>
+              {playerRole === 'teacher' ? (
+                <>
+                  {(onTeacherAddTime || onTeacherRestoreHeart) && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {onTeacherAddTime && (
+                        <button
+                          type="button"
+                          data-testid="pause-teacher-add-time-btn"
+                          onClick={() => {
+                            retroAudio.playButtonClick();
+                            onTeacherAddTime();
+                          }}
+                          className="py-2 px-3 rounded-md bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-400/75 text-emerald-100 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+                        >
+                          <Clock className="w-3.5 h-3.5 text-emerald-300 shrink-0" aria-hidden="true" />
+                          <span>+60 Detik Waktu</span>
+                        </button>
+                      )}
+                      {onTeacherRestoreHeart && (
+                        <button
+                          type="button"
+                          data-testid="pause-teacher-heal-class-btn"
+                          onClick={() => {
+                            retroAudio.playButtonClick();
+                            onTeacherRestoreHeart();
+                          }}
+                          className="py-2 px-3 rounded-md bg-rose-950/90 hover:bg-rose-900 border border-rose-400/75 text-rose-100 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+                        >
+                          <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400 shrink-0" aria-hidden="true" />
+                          <span>+1 Hati Kelas</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="pause-resume-btn"
+                    onClick={() => {
+                      retroAudio.playButtonClick();
+                      onTogglePause();
+                    }}
+                    className="rpg-btn-gold w-full py-2.5 font-bold text-sm flex items-center justify-center gap-2"
+                  >
+                    <Play className="w-4 h-4 fill-current" aria-hidden="true" />
+                    <span>Lanjutkan Permainan</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="pause-restart-game-btn"
+                    onClick={() => {
+                      retroAudio.playButtonClick();
+                      onTeacherRestartGame();
+                    }}
+                    className="rpg-btn-slate w-full py-2.5 text-slate-100 font-semibold text-sm flex items-center justify-center gap-2"
+                  >
+                    <RotateCcw className="w-4 h-4" aria-hidden="true" />
+                    <span>Mulai Ulang Labirin</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="pause-end-game-btn"
+                    onClick={() => {
+                      retroAudio.playButtonClick();
+                      onTeacherEndGame();
+                    }}
+                    className="rpg-btn-slate w-full py-2.5 text-amber-300 font-semibold text-xs flex items-center justify-center gap-2"
+                  >
+                    <Flag className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Selesaikan Sesi &amp; Lihat Hasil</span>
+                  </button>
+                </>
+              ) : (
+                <div
+                  data-testid="pause-student-waiting-notice"
+                  className="rounded-md bg-amber-950/75 border border-amber-400/70 px-3.5 py-2.5 text-xs text-amber-100 leading-relaxed"
+                >
+                  Permainan sedang dijeda oleh Guru. Harap tunggu hingga Guru melanjutkan sesi.
+                </div>
+              )}
               <button
                 type="button"
                 onClick={onToggleMute}

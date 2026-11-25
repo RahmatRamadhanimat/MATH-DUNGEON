@@ -171,7 +171,7 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
   };
 
   return (
-    <div className="min-h-[100dvh] bg-[#090D15] text-slate-100 p-3.5 sm:p-6 overflow-y-auto">
+    <div className="min-h-[100dvh] bg-[#090D15] text-slate-100 p-3.5 sm:p-6 overflow-x-clip">
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-5">
         {isDevPreviewHost && localRole === 'teacher' && (
           <div className="rounded-md bg-amber-950/85 border border-amber-400/80 p-3.5 sm:p-4 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">

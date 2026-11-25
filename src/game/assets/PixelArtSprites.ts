@@ -8,6 +8,7 @@ import {
   TileType,
 } from '../../shared/constants';
 import { DEFAULT_MAZE_BIOME, getMazeBiomeTheme } from '../../shared/biomeThemes';
+import { MysteryPowerUpType } from '../../shared/mysteryChests';
 
 const tileCache = new Map<string, HTMLCanvasElement>();
 const characterSpriteCache = new Map<string, HTMLCanvasElement>();
@@ -567,6 +568,85 @@ export function getKeySprite(keyType: KeyType, frame = 0): HTMLCanvasElement {
   } else {
     px(ctx, 12, 4, '#FFFFFF', 1, 1);
     px(ctx, 4, 12, info.glow, 1, 1);
+  }
+
+  tileCache.set(cacheKey, canvas);
+  return canvas;
+}
+
+/**
+ * Renders an animated 32x32 16-bit Mystery Treasure Chest sprite for Secret Rooms.
+ * Closed chests pulse with arcane purple/gold runes and a floating sparkle; opened chests
+ * reveal gleaming golden treasure inside.
+ */
+export function getMysteryChestSprite(
+  rewardType: MysteryPowerUpType,
+  opened: boolean,
+  frame = 0
+): HTMLCanvasElement {
+  const animFrame = frame % 4;
+  const cacheKey = `mystery_chest:${rewardType}:${opened ? 'open' : 'closed'}:${animFrame}`;
+  const cached = tileCache.get(cacheKey);
+  if (cached) return cached;
+
+  const { canvas, ctx } = createPixelCanvas(32, 32);
+  const bobY = !opened && (animFrame === 1 || animFrame === 3) ? -1 : 0;
+  const gemColor =
+    rewardType === 'torch_sight'
+      ? '#FACC15'
+      : rewardType === 'speed_boots'
+      ? '#38BDF8'
+      : '#F43F5E';
+
+  // Ground shadow
+  p1(ctx, 4, 25, 'rgba(5, 8, 15, 0.6)', 24, 4);
+
+  if (opened) {
+    // Open Chest Base + Raised Lid + Overflowing Gold & Gems
+    p1(ctx, 5, 6, '#090D16', 22, 20);
+    // Open Lid (tilted back at top)
+    p1(ctx, 6, 7, '#4C1D95', 20, 5);
+    p1(ctx, 7, 8, '#6D28D9', 18, 3);
+    p1(ctx, 6, 11, '#FACC15', 20, 1);
+    // Glowing Treasure Interior
+    p1(ctx, 7, 12, '#FEF08A', 18, 4);
+    p1(ctx, 9, 13, '#FACC15', 14, 3);
+    p1(ctx, 13, 12, gemColor, 6, 3);
+    // Lower Chest Box
+    p1(ctx, 6, 16, '#581C87', 20, 9);
+    p1(ctx, 7, 17, '#7E22CE', 18, 7);
+    p1(ctx, 9, 16, '#FACC15', 2, 9);
+    p1(ctx, 21, 16, '#FACC15', 2, 9);
+    p1(ctx, 14, 16, '#FDE047', 4, 4);
+  } else {
+    // Closed Arcane Mystery Chest with pulsing gem lock & floating sparkles
+    p1(ctx, 5, 9 + bobY, '#090D16', 22, 17);
+    // Domed Royal Purple & Gold Lid
+    p1(ctx, 6, 10 + bobY, '#581C87', 20, 6);
+    p1(ctx, 7, 11 + bobY, '#7E22CE', 18, 4);
+    p1(ctx, 8, 11 + bobY, '#A855F7', 16, 2);
+    // Lower Chest Body
+    p1(ctx, 6, 17 + bobY, '#3B0764', 20, 8);
+    p1(ctx, 7, 18 + bobY, '#6B21A8', 18, 6);
+    // Gold Straps & Trim
+    p1(ctx, 9, 10 + bobY, '#FACC15', 2, 15);
+    p1(ctx, 21, 10 + bobY, '#FACC15', 2, 15);
+    p1(ctx, 6, 15 + bobY, '#F59E0B', 20, 2);
+    // Center Emblem Lock
+    p1(ctx, 13, 13 + bobY, '#090D16', 6, 7);
+    p1(ctx, 14, 14 + bobY, '#FDE047', 4, 5);
+    p1(ctx, 15, 15 + bobY, gemColor, 2, 3);
+
+    // Floating '?' / Sparkle particles above closed chest
+    if (animFrame % 2 === 0) {
+      p1(ctx, 7, 5, '#FDE047', 2, 2);
+      p1(ctx, 23, 6, gemColor, 2, 2);
+      p1(ctx, 15, 3, '#FFFFFF', 2, 2);
+    } else {
+      p1(ctx, 9, 6, gemColor, 2, 2);
+      p1(ctx, 21, 4, '#FDE047', 2, 2);
+      p1(ctx, 15, 4, '#FDE047', 2, 2);
+    }
   }
 
   tileCache.set(cacheKey, canvas);

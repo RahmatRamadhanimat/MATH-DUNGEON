@@ -257,6 +257,9 @@ export const SOCKET_EVENTS = {
   END_GAME: 'game:end',
   RESTART_GAME: 'game:restart',
   GAME_TICK: 'game:tick',
+  TEACHER_ADD_TIME: 'teacher:add_time',
+  TEACHER_RESTORE_HEART: 'teacher:restore_heart',
+  TEACHER_AID_BROADCAST: 'teacher:aid_broadcast',
 
   // Real-time Gameplay
   PLAYER_MOVE: 'player:move',
