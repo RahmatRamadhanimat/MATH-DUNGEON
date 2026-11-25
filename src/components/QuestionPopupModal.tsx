@@ -11,6 +11,7 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
+import { AnswerOptionKey } from '../shared/constants';
 import { GrantedPowerUpPayload, isMysteryChestId } from '../shared/mysteryChests';
 import { PublicMathQuestion } from '../shared/questionGenerator';
 import { evaluateStreakTier } from '../shared/streakSystem';
@@ -18,7 +19,7 @@ import { retroAudio } from '../game/audio/RetroAudio';
 
 export interface QuestionFeedbackState {
   correct: boolean;
-  correctOption: 'A' | 'B';
+  correctOption: AnswerOptionKey;
   explanation: string;
   pointsEarned: number;
   livesRemaining: number;
@@ -36,7 +37,7 @@ interface QuestionPopupModalProps {
   currentStreak?: number;
   submitError?: string | null;
   canRetryOrClose?: boolean;
-  onSelectAnswer: (option: 'A' | 'B' | 'TIMEOUT') => void;
+  onSelectAnswer: (option: AnswerOptionKey | 'TIMEOUT') => void;
   onRetrySubmit?: () => void;
   onCloseFeedback: () => void;
 }
@@ -53,8 +54,11 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
 }) => {
   const totalSeconds = question.timerSeconds || 25;
   const [secondsLeft, setSecondsLeft] = useState<number>(totalSeconds);
-  const [selectedChoice, setSelectedChoice] = useState<'A' | 'B' | null>(null);
+  const [selectedChoice, setSelectedChoice] = useState<AnswerOptionKey | null>(null);
   const [timedOut, setTimedOut] = useState<boolean>(false);
+  const optionKeys: AnswerOptionKey[] =
+    question.options.C && question.options.D ? ['A', 'B', 'C', 'D'] : ['A', 'B'];
+  const isFourChoice = optionKeys.length === 4;
 
   useEffect(() => {
     setSecondsLeft(question.timerSeconds || 25);
@@ -77,7 +81,7 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
   }, [secondsLeft, feedback, selectedChoice, timedOut, onSelectAnswer]);
 
   const handleChoose = useCallback(
-    (opt: 'A' | 'B') => {
+    (opt: AnswerOptionKey) => {
       if (feedback || selectedChoice || timedOut) return;
       retroAudio.playButtonClick();
       setSelectedChoice(opt);
@@ -86,7 +90,7 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
     [feedback, selectedChoice, timedOut, onSelectAnswer]
   );
 
-  // Keyboard shortcuts A / B or Enter/Escape to dismiss feedback or recovery banner
+  // Keyboard shortcuts A-D / 1-4 or Enter/Escape to dismiss feedback or recovery banner
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (feedback || submitError) {
@@ -103,11 +107,17 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
       } else if (e.key === 'b' || e.key === 'B' || e.key === '2') {
         e.preventDefault();
         handleChoose('B');
+      } else if (isFourChoice && (e.key === 'c' || e.key === 'C' || e.key === '3')) {
+        e.preventDefault();
+        handleChoose('C');
+      } else if (isFourChoice && (e.key === 'd' || e.key === 'D' || e.key === '4')) {
+        e.preventDefault();
+        handleChoose('D');
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [feedback, submitError, selectedChoice, timedOut, handleChoose, onCloseFeedback]);
+  }, [feedback, submitError, selectedChoice, timedOut, isFourChoice, handleChoose, onCloseFeedback]);
 
   const diffLabel =
     question.difficulty === 'easy'
@@ -157,6 +167,17 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
                 ? 'Soal Guru'
                 : `Tingkat ${diffLabel}`}
             </span>
+            {isFourChoice && (
+              <>
+                <span aria-hidden="true" className="text-slate-500">·</span>
+                <span
+                  data-testid="modal-choice-mode-tag"
+                  className="text-emerald-300 font-semibold"
+                >
+                  4 Pilihan (A–D)
+                </span>
+              </>
+            )}
             {currentStreak > 0 && !feedback && (
               <>
                 <span aria-hidden="true" className="text-slate-500">·</span>
@@ -213,10 +234,14 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
           </h2>
         </div>
 
-        {/* Strictly Two Answer Choices: A and B */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 sm:mb-5">
-          {(['A', 'B'] as const).map((optKey) => {
-            const val = question.options[optKey];
+        {/* Answer Choices: 2 Choices (A/B) or 4 Choices (A/B/C/D) */}
+        <div
+          data-testid="question-options-grid"
+          data-choice-count={optionKeys.length}
+          className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 sm:mb-5"
+        >
+          {optionKeys.map((optKey) => {
+            const val = question.options[optKey] ?? '';
             const isPicked = selectedChoice === optKey;
             const isCorrectChoice = feedback && feedback.correctOption === optKey;
             const isWrongPicked = feedback && isPicked && !feedback.correct;
@@ -238,10 +263,10 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
                 disabled={Boolean(feedback) || Boolean(selectedChoice) || timedOut}
                 data-testid={`answer-option-${optKey}`}
                 onClick={() => handleChoose(optKey)}
-                className={`rounded-md min-h-[60px] p-3.5 border-2 text-left transition-all active:scale-[0.98] flex items-center justify-between gap-2 ${btnStyle}`}
+                className={`rounded-md min-h-[58px] p-3.5 border-2 text-left transition-all active:scale-[0.98] flex items-center justify-between gap-2 ${btnStyle}`}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <span className="w-10 h-10 rounded bg-[#090D15] border border-amber-400/80 text-amber-300 font-code font-bold flex items-center justify-center text-base shrink-0">
+                  <span className="w-9 h-9 sm:w-10 sm:h-10 rounded bg-[#090D15] border border-amber-400/80 text-amber-300 font-code font-bold flex items-center justify-center text-base shrink-0">
                     {optKey}
                   </span>
                   <span className="font-code text-base sm:text-lg font-bold tabular-nums break-words">
@@ -428,11 +453,13 @@ export const QuestionPopupModal: React.FC<QuestionPopupModalProps> = ({
               <>
                 <Sparkles className="w-3.5 h-3.5 text-purple-300 shrink-0" aria-hidden="true" />
                 <span>
-                  Pilih A atau B · Benar mendapat Power-Up (Obor Terang / Sepatu Kilat / Perisai Hati) · Salah tidak mengurangi nyawa
+                  {isFourChoice ? 'Pilih A, B, C, atau D' : 'Pilih A atau B'} · Benar mendapat Power-Up (Obor Terang / Sepatu Kilat / Perisai Hati) · Salah tidak mengurangi nyawa
                 </span>
               </>
             ) : (
-              <span>Pilih A atau B · Benar membuka kunci · Salah mengurangi 1 nyawa</span>
+              <span>
+                {isFourChoice ? 'Pilih A, B, C, atau D' : 'Pilih A atau B'} · Benar membuka kunci · Salah mengurangi 1 nyawa
+              </span>
             )}
           </p>
         )}

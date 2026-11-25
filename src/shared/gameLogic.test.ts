@@ -1173,4 +1173,102 @@ test('Math Streak Multiplier computes COMBO 3x (x1.5), ON FIRE 5x (x2.0), API BI
   assert.match(buildStreakMilestoneAnnouncement('Arya Ksatria', 7) ?? '', /AURA API BIRU/);
 });
 
+test('4-Choice Quiz Mode (A/B/C/D) generates 4 distinct choices across all 17 categories and enriches custom/preset banks', () => {
+  const counts: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+
+  for (const cat of MATH_CATEGORIES) {
+    const used = new Set<string>();
+    for (let i = 0; i < 6; i++) {
+      const q = generateMathQuestion({
+        difficulty: cat.difficulty,
+        categories: [cat.id],
+        choiceCount: 4,
+        usedSignatures: used,
+      });
+      assert.equal(q.choiceCount, 4, `Expected choiceCount 4 for ${cat.id}`);
+      assert.ok(q.options.A && q.options.B && q.options.C && q.options.D, `Missing A/B/C/D for ${cat.id}`);
+      const vals = [q.options.A, q.options.B, q.options.C, q.options.D].map((s) => s.toLowerCase());
+      assert.equal(new Set(vals).size, 4, `Duplicate choice detected in ${cat.id}: ${vals.join(', ')}`);
+      assert.ok(['A', 'B', 'C', 'D'].includes(q.correctOption));
+      counts[q.correctOption] += 1;
+    }
+  }
+
+  // Randomized correctOption should hit all 4 letters across 102 questions
+  assert.ok(counts.A > 0 && counts.B > 0 && counts.C > 0 && counts.D > 0, JSON.stringify(counts));
+
+  // Teacher-authored 4-choice question preserves exact C/D answer keys
+  const sanitized = sanitizeCustomQuestions([
+    {
+      id: 'q4',
+      prompt: 'Berapakah 12 × 12?',
+      optionA: '124',
+      optionB: '132',
+      optionC: '144',
+      optionD: '156',
+      correctOption: 'C',
+    },
+    {
+      id: 'q2-math',
+      prompt: 'Berapakah 25% dari 200?',
+      optionA: '50',
+      optionB: '40',
+      correctOption: 'A',
+    },
+    {
+      id: 'q2-text',
+      prompt: 'Ibukota Jawa Barat adalah...',
+      optionA: 'Bandung',
+      optionB: 'Surabaya',
+      correctOption: 'A',
+    },
+  ]);
+
+  assert.equal(sanitized.length, 3);
+  assert.equal(sanitized[0].correctOption, 'C');
+  assert.equal(sanitized[0].optionD, '156');
+
+  const pickedFourAuthored = pickQuestionForRoom({
+    difficulty: 'easy',
+    choiceCount: 4,
+    questionSource: 'custom_only',
+    customQuestions: [sanitized[0]],
+  });
+  assert.equal(pickedFourAuthored.choiceCount, 4);
+  assert.equal(pickedFourAuthored.correctOption, 'C');
+  assert.equal(pickedFourAuthored.options.C, '144');
+
+  // 2-choice math preset gets seamlessly enriched to 4 distinct choices when room is in 4-choice mode
+  const enrichedPreset = pickQuestionForRoom({
+    difficulty: 'easy',
+    choiceCount: 4,
+    questionSource: 'custom_only',
+    customQuestions: [sanitized[1]],
+  });
+  assert.equal(enrichedPreset.choiceCount, 4);
+  assert.ok(enrichedPreset.options.C && enrichedPreset.options.D);
+  assert.equal(enrichedPreset.options[enrichedPreset.correctOption], '50');
+  assert.equal(
+    new Set([
+      enrichedPreset.options.A,
+      enrichedPreset.options.B,
+      enrichedPreset.options.C,
+      enrichedPreset.options.D,
+    ]).size,
+    4
+  );
+
+  // Non-numeric 2-choice text custom question stays cleanly 2-choice instead of fabricating text
+  const textFallback = pickQuestionForRoom({
+    difficulty: 'easy',
+    choiceCount: 4,
+    questionSource: 'custom_only',
+    customQuestions: [sanitized[2]],
+  });
+  assert.equal(textFallback.choiceCount, 2);
+  assert.equal(textFallback.options.C, undefined);
+  assert.equal(textFallback.options[textFallback.correctOption], 'Bandung');
+});
+
+
 

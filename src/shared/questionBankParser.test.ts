@@ -48,3 +48,16 @@ test('parseUploadedQuestionsText parses JSON array and rejects malformed files',
   assert.equal(bad.ok, false);
   assert.ok(bad.error);
 });
+
+test('parseUploadedQuestionsText parses 4-choice CSV template with A/B/C/D options and answer keys', () => {
+  const csv4 = buildCustomQuestionsCsvTemplate(4);
+  const res = parseUploadedQuestionsText(csv4, 'soal-4-pilihan.csv');
+  assert.equal(res.ok, true);
+  assert.equal(res.questions.length, 15);
+  assert.equal(res.skippedCount, 0);
+  assert.equal(res.questions[2].optionC, '12');
+  assert.equal(res.questions[2].optionD, '16');
+  assert.equal(res.questions[2].correctOption, 'C');
+  assert.equal(res.questions[3].correctOption, 'D');
+});
+

@@ -12,7 +12,12 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import { CustomQuestionItem, QuestionSourceMode } from '../shared/constants';
+import {
+  AnswerOptionKey,
+  CustomQuestionItem,
+  QuestionSourceMode,
+  QuizChoiceCount,
+} from '../shared/constants';
 import { sanitizeCustomQuestions } from '../shared/questionGenerator';
 import {
   buildCustomQuestionsCsvTemplate,
@@ -49,6 +54,7 @@ function saveTeacherBank(items: CustomQuestionItem[]): void {
 export interface QuestionBankManagerProps {
   localRole: 'teacher' | 'student';
   questionSource: QuestionSourceMode;
+  quizChoiceCount?: QuizChoiceCount;
   customQuestions: CustomQuestionItem[];
   studentVisibleCount?: number;
   onChangeQuestionSource: (source: QuestionSourceMode) => void;
@@ -61,6 +67,7 @@ export interface QuestionBankManagerProps {
 export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
   localRole,
   questionSource,
+  quizChoiceCount = 2,
   customQuestions,
   studentVisibleCount,
   onChangeQuestionSource,
@@ -72,7 +79,9 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftOptionA, setDraftOptionA] = useState('');
   const [draftOptionB, setDraftOptionB] = useState('');
-  const [draftCorrect, setDraftCorrect] = useState<'A' | 'B'>('A');
+  const [draftOptionC, setDraftOptionC] = useState('');
+  const [draftOptionD, setDraftOptionD] = useState('');
+  const [draftCorrect, setDraftCorrect] = useState<AnswerOptionKey>('A');
   const [draftExplanation, setDraftExplanation] = useState('');
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -81,10 +90,15 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
     loadSavedTeacherBank()
   );
 
+  const showFourOptionInputs =
+    quizChoiceCount === 4 || Boolean(draftOptionC.trim() || draftOptionD.trim());
+
   const resetForm = () => {
     setDraftPrompt('');
     setDraftOptionA('');
     setDraftOptionB('');
+    setDraftOptionC('');
+    setDraftOptionD('');
     setDraftCorrect('A');
     setDraftExplanation('');
     setEditingQuestionId(null);
@@ -109,6 +123,8 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
     const prompt = draftPrompt.trim();
     const optionA = draftOptionA.trim();
     const optionB = draftOptionB.trim();
+    const optionC = draftOptionC.trim();
+    const optionD = draftOptionD.trim();
     const explanation = draftExplanation.trim();
 
     if (!prompt) {
@@ -116,13 +132,29 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
       return;
     }
     if (!optionA || !optionB) {
-      setFormError('Isi kedua pilihan jawaban (A dan B).');
+      setFormError('Isi pilihan jawaban A dan B terlebih dahulu.');
       return;
     }
-    if (optionA.toLowerCase() === optionB.toLowerCase()) {
+
+    const wantsFour = showFourOptionInputs && (Boolean(optionC) || Boolean(optionD) || quizChoiceCount === 4);
+    if (wantsFour && (!optionC || !optionD)) {
+      setFormError('Pada mode 4 pilihan, isi keempat pilihan jawaban (A, B, C, dan D).');
+      return;
+    }
+
+    if (wantsFour) {
+      const uniqueSet = new Set([optionA, optionB, optionC, optionD].map((s) => s.toLowerCase()));
+      if (uniqueSet.size < 4) {
+        setFormError('Keempat pilihan jawaban (A, B, C, D) harus berbeda satu sama lain.');
+        return;
+      }
+    } else if (optionA.toLowerCase() === optionB.toLowerCase()) {
       setFormError('Pilihan jawaban A dan B tidak boleh sama.');
       return;
     }
+
+    const safeCorrect: AnswerOptionKey =
+      wantsFour || draftCorrect === 'A' || draftCorrect === 'B' ? draftCorrect : 'A';
 
     const existingList = customQuestions ?? [];
     let nextList: CustomQuestionItem[];
@@ -135,7 +167,8 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
               prompt,
               optionA,
               optionB,
-              correctOption: draftCorrect,
+              ...(wantsFour ? { optionC, optionD } : { optionC: undefined, optionD: undefined }),
+              correctOption: safeCorrect,
               ...(explanation ? { explanation } : { explanation: undefined }),
             }
           : q
@@ -150,7 +183,8 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
         prompt,
         optionA,
         optionB,
-        correctOption: draftCorrect,
+        ...(wantsFour ? { optionC, optionD } : {}),
+        correctOption: safeCorrect,
         ...(explanation ? { explanation } : {}),
       };
       nextList = [...existingList, newItem];
@@ -167,6 +201,8 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
     setDraftPrompt(item.prompt);
     setDraftOptionA(item.optionA);
     setDraftOptionB(item.optionB);
+    setDraftOptionC(item.optionC ?? '');
+    setDraftOptionD(item.optionD ?? '');
     setDraftCorrect(item.correctOption);
     setDraftExplanation(item.explanation ?? '');
     setFormError(null);
@@ -264,6 +300,8 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
       setDraftPrompt(sample.prompt);
       setDraftOptionA(sample.optionA);
       setDraftOptionB(sample.optionB);
+      setDraftOptionC(sample.optionC ?? '');
+      setDraftOptionD(sample.optionD ?? '');
       setDraftCorrect(sample.correctOption);
       setDraftExplanation(sample.explanation ?? '');
       setFormError(null);
@@ -272,12 +310,15 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
   };
 
   const handleDownloadCsvTemplate = () => {
-    const csvContent = buildCustomQuestionsCsvTemplate();
+    const csvContent = buildCustomQuestionsCsvTemplate(quizChoiceCount);
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'template-soal-math-maze.csv';
+    a.download =
+      quizChoiceCount === 4
+        ? 'template-soal-math-maze-4-pilihan.csv'
+        : 'template-soal-math-maze.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -626,41 +667,89 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
                   className="w-full min-h-[40px] rounded-md bg-[#131b2b] border border-slate-600 focus:border-emerald-400 outline-none px-3 py-2 text-base sm:text-sm font-code text-white placeholder:text-slate-500 placeholder:font-sans"
                 />
               </div>
+
+              {showFourOptionInputs && (
+                <>
+                  <div>
+                    <label
+                      htmlFor="custom-question-opt-c"
+                      className="block text-xs font-medium text-slate-300 mb-1"
+                    >
+                      Pilihan Jawaban C
+                    </label>
+                    <input
+                      id="custom-question-opt-c"
+                      data-testid="custom-q-opt-c"
+                      type="text"
+                      maxLength={100}
+                      value={draftOptionC}
+                      onChange={(e) => {
+                        setDraftOptionC(e.target.value);
+                        setFormError(null);
+                      }}
+                      placeholder="Jawaban C..."
+                      className="w-full min-h-[40px] rounded-md bg-[#131b2b] border border-slate-600 focus:border-emerald-400 outline-none px-3 py-2 text-base sm:text-sm font-code text-white placeholder:text-slate-500 placeholder:font-sans"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="custom-question-opt-d"
+                      className="block text-xs font-medium text-slate-300 mb-1"
+                    >
+                      Pilihan Jawaban D
+                    </label>
+                    <input
+                      id="custom-question-opt-d"
+                      data-testid="custom-q-opt-d"
+                      type="text"
+                      maxLength={100}
+                      value={draftOptionD}
+                      onChange={(e) => {
+                        setDraftOptionD(e.target.value);
+                        setFormError(null);
+                      }}
+                      placeholder="Jawaban D..."
+                      className="w-full min-h-[40px] rounded-md bg-[#131b2b] border border-slate-600 focus:border-emerald-400 outline-none px-3 py-2 text-base sm:text-sm font-code text-white placeholder:text-slate-500 placeholder:font-sans"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             <div>
               <span className="block text-xs font-medium text-slate-300 mb-1.5">
                 Kunci Jawaban Benar
               </span>
-              <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  type="button"
-                  data-testid="custom-q-correct-a"
-                  aria-pressed={draftCorrect === 'A'}
-                  onClick={() => setDraftCorrect('A')}
-                  className={`rounded-md min-h-[42px] px-3 py-2 font-bold text-xs sm:text-sm border flex items-center justify-center gap-1.5 transition-colors ${
-                    draftCorrect === 'A'
-                      ? 'bg-emerald-600 border-emerald-300 text-white'
-                      : 'bg-[#131b2b] border-slate-700 text-slate-300 hover:border-slate-500'
-                  }`}
-                >
-                  {draftCorrect === 'A' && <Check className="w-4 h-4 shrink-0" aria-hidden="true" />}
-                  <span>{draftCorrect === 'A' ? 'Jawaban A Benar' : 'Pilih A Benar'}</span>
-                </button>
-                <button
-                  type="button"
-                  data-testid="custom-q-correct-b"
-                  aria-pressed={draftCorrect === 'B'}
-                  onClick={() => setDraftCorrect('B')}
-                  className={`rounded-md min-h-[42px] px-3 py-2 font-bold text-xs sm:text-sm border flex items-center justify-center gap-1.5 transition-colors ${
-                    draftCorrect === 'B'
-                      ? 'bg-emerald-600 border-emerald-300 text-white'
-                      : 'bg-[#131b2b] border-slate-700 text-slate-300 hover:border-slate-500'
-                  }`}
-                >
-                  {draftCorrect === 'B' && <Check className="w-4 h-4 shrink-0" aria-hidden="true" />}
-                  <span>{draftCorrect === 'B' ? 'Jawaban B Benar' : 'Pilih B Benar'}</span>
-                </button>
+              <div
+                className={`grid gap-2.5 ${
+                  showFourOptionInputs ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2'
+                }`}
+              >
+                {(showFourOptionInputs
+                  ? (['A', 'B', 'C', 'D'] as const)
+                  : (['A', 'B'] as const)
+                ).map((optKey) => (
+                  <button
+                    key={optKey}
+                    type="button"
+                    data-testid={`custom-q-correct-${optKey.toLowerCase()}`}
+                    aria-pressed={draftCorrect === optKey}
+                    onClick={() => setDraftCorrect(optKey)}
+                    className={`rounded-md min-h-[42px] px-3 py-2 font-bold text-xs sm:text-sm border flex items-center justify-center gap-1.5 transition-colors ${
+                      draftCorrect === optKey
+                        ? 'bg-emerald-600 border-emerald-300 text-white'
+                        : 'bg-[#131b2b] border-slate-700 text-slate-300 hover:border-slate-500'
+                    }`}
+                  >
+                    {draftCorrect === optKey && (
+                      <Check className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    )}
+                    <span>
+                      {draftCorrect === optKey ? `Jawaban ${optKey} Benar` : `Pilih ${optKey}`}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -764,40 +853,38 @@ export const QuestionBankManager: React.FC<QuestionBankManagerProps> = ({
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs">
-                      <div
-                        className={`rounded px-2.5 py-1.5 border flex items-center justify-between gap-2 ${
-                          cq.correctOption === 'A'
-                            ? 'bg-emerald-950/60 border-emerald-500/70 text-emerald-100'
-                            : 'bg-[#131b2b] border-slate-800 text-slate-400'
-                        }`}
-                      >
-                        <span className="truncate font-code">
-                          <strong className="text-amber-300 font-sans">A.</strong> {cq.optionA}
-                        </span>
-                        {cq.correctOption === 'A' && (
-                          <span className="text-[11px] font-bold text-emerald-300 shrink-0 flex items-center gap-1">
-                            <Check className="w-3 h-3" aria-hidden="true" />
-                            <span>Benar</span>
+                      {(
+                        [
+                          { key: 'A' as const, val: cq.optionA },
+                          { key: 'B' as const, val: cq.optionB },
+                          ...(cq.optionC && cq.optionD
+                            ? [
+                                { key: 'C' as const, val: cq.optionC },
+                                { key: 'D' as const, val: cq.optionD },
+                              ]
+                            : []),
+                        ] as const
+                      ).map((opt) => (
+                        <div
+                          key={opt.key}
+                          className={`rounded px-2.5 py-1.5 border flex items-center justify-between gap-2 ${
+                            cq.correctOption === opt.key
+                              ? 'bg-emerald-950/60 border-emerald-500/70 text-emerald-100'
+                              : 'bg-[#131b2b] border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          <span className="truncate font-code">
+                            <strong className="text-amber-300 font-sans">{opt.key}.</strong>{' '}
+                            {opt.val}
                           </span>
-                        )}
-                      </div>
-                      <div
-                        className={`rounded px-2.5 py-1.5 border flex items-center justify-between gap-2 ${
-                          cq.correctOption === 'B'
-                            ? 'bg-emerald-950/60 border-emerald-500/70 text-emerald-100'
-                            : 'bg-[#131b2b] border-slate-800 text-slate-400'
-                        }`}
-                      >
-                        <span className="truncate font-code">
-                          <strong className="text-amber-300 font-sans">B.</strong> {cq.optionB}
-                        </span>
-                        {cq.correctOption === 'B' && (
-                          <span className="text-[11px] font-bold text-emerald-300 shrink-0 flex items-center gap-1">
-                            <Check className="w-3 h-3" aria-hidden="true" />
-                            <span>Benar</span>
-                          </span>
-                        )}
-                      </div>
+                          {cq.correctOption === opt.key && (
+                            <span className="text-[11px] font-bold text-emerald-300 shrink-0 flex items-center gap-1">
+                              <Check className="w-3 h-3" aria-hidden="true" />
+                              <span>Benar</span>
+                            </span>
+                          )}
+                        </div>
+                      ))}
                     </div>
 
                     {cq.explanation && (

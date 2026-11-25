@@ -10,13 +10,17 @@ export type PlayerAnimState = 'idle' | 'walk' | 'key_get' | 'answering';
 export type PlayerStatus = 'active' | 'eliminated' | 'spectator' | 'escaped';
 export type TeamId = 'red' | 'blue' | 'green' | 'yellow' | 'purple';
 export type QuestionSourceMode = 'auto' | 'custom_only' | 'mixed';
+export type AnswerOptionKey = 'A' | 'B' | 'C' | 'D';
+export type QuizChoiceCount = 2 | 4;
 
 export interface CustomQuestionItem {
   id: string;
   prompt: string;
   optionA: string;
   optionB: string;
-  correctOption: 'A' | 'B';
+  optionC?: string;
+  optionD?: string;
+  correctOption: AnswerOptionKey;
   explanation?: string;
 }
 
@@ -302,6 +306,7 @@ export interface RoomSettings {
   difficulty: DifficultyLevel;
   categories: MathCategoryId[];
   questionSource: QuestionSourceMode;
+  quizChoiceCount: QuizChoiceCount;
   customQuestions: CustomQuestionItem[];
   keyCount: number;
   mapLevel: number; // 1..5
@@ -320,6 +325,7 @@ export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   difficulty: 'easy',
   categories: ['addition', 'subtraction', 'multiplication', 'division', 'basic_ops'],
   questionSource: 'auto',
+  quizChoiceCount: 2,
   customQuestions: [],
   keyCount: 5,
   mapLevel: 1,

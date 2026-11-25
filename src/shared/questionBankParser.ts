@@ -1,4 +1,4 @@
-import { CustomQuestionItem } from './constants';
+import { AnswerOptionKey, CustomQuestionItem, QuizChoiceCount } from './constants';
 import { sanitizeCustomQuestions } from './questionGenerator';
 
 export interface ParseQuestionsResult {
@@ -46,21 +46,46 @@ function detectDelimiter(lines: string[]): string {
 function isHeaderRow(cols: string[]): boolean {
   const first = (cols[0] ?? '').toLowerCase();
   const second = (cols[1] ?? '').toLowerCase();
-  const fourth = (cols[3] ?? '').toLowerCase();
+  const joined = cols.map((c) => c.toLowerCase()).join('|');
   return (
     first.includes('pertanyaan') ||
     first.includes('prompt') ||
     first.includes('soal') ||
     second.includes('pilihan_a') ||
     second.includes('optiona') ||
-    fourth.includes('jawaban_benar') ||
-    fourth.includes('correct')
+    joined.includes('jawaban_benar') ||
+    joined.includes('correct')
   );
+}
+
+function isFourChoiceHeader(cols: string[]): boolean {
+  const joined = cols.map((c) => c.toLowerCase()).join('|');
+  return (
+    joined.includes('pilihan_c') ||
+    joined.includes('optionc') ||
+    joined.includes('opsi_c') ||
+    joined.includes('pilihan_d') ||
+    joined.includes('optiond')
+  );
+}
+
+function parseCorrectOptionKey(raw: string, allowFour: boolean): AnswerOptionKey {
+  const norm = raw.trim().toUpperCase();
+  if (allowFour) {
+    if (norm === 'D' || norm === '4') return 'D';
+    if (norm === 'C' || norm === '3') return 'C';
+  }
+  if (norm === 'B' || norm === '2') return 'B';
+  return 'A';
+}
+
+function looksLikeAnswerKey(raw: string): boolean {
+  return /^(A|B|C|D|1|2|3|4)$/i.test(raw.trim());
 }
 
 /**
  * Parses uploaded teacher question banks in JSON, CSV (comma/semicolon), or TSV format.
- * Preserves only valid 2-option (A/B) items with distinct choices.
+ * Supports both 2-option (A/B) and 4-option (A/B/C/D) items with distinct choices.
  */
 export function parseUploadedQuestionsText(
   rawText: string,
@@ -100,7 +125,8 @@ export function parseUploadedQuestionsText(
           ok: false,
           questions: [],
           skippedCount: skipped,
-          error: 'Tidak ada soal valid di file JSON (pastikan prompt, optionA, optionB berbeda, dan correctOption A/B terisi).',
+          error:
+            'Tidak ada soal valid di file JSON (pastikan prompt, optionA, optionB berbeda — dan optionC/optionD untuk 4 pilihan — serta correctOption terisi).',
         };
       }
       return { ok: true, questions: valid, skippedCount: skipped };
@@ -127,7 +153,10 @@ export function parseUploadedQuestionsText(
   }
 
   const delimiter = detectDelimiter(lines);
-  const startIdx = isHeaderRow(parseDelimitedLine(lines[0], delimiter)) ? 1 : 0;
+  const firstCols = parseDelimitedLine(lines[0], delimiter);
+  const hasHeader = isHeaderRow(firstCols);
+  const headerIsFourChoice = hasHeader && isFourChoiceHeader(firstCols);
+  const startIdx = hasHeader ? 1 : 0;
   const candidateRows: Partial<CustomQuestionItem>[] = [];
   let totalDataRows = 0;
 
@@ -138,17 +167,33 @@ export function parseUploadedQuestionsText(
       continue;
     }
     totalDataRows++;
-    const [prompt, optionA, optionB, rawCorrect = 'A', explanation = ''] = cols;
-    const normCorrect = rawCorrect.trim().toUpperCase();
-    const correctOption: 'A' | 'B' = normCorrect === 'B' || normCorrect === '2' ? 'B' : 'A';
-    candidateRows.push({
-      id: `up-${Date.now()}-${i}`,
-      prompt,
-      optionA,
-      optionB,
-      correctOption,
-      explanation,
-    });
+
+    const rowIsFourChoice =
+      headerIsFourChoice || (cols.length >= 6 && looksLikeAnswerKey(cols[5] ?? ''));
+
+    if (rowIsFourChoice) {
+      const [prompt, optionA, optionB, optionC, optionD, rawCorrect = 'A', explanation = ''] = cols;
+      candidateRows.push({
+        id: `up-${Date.now()}-${i}`,
+        prompt,
+        optionA,
+        optionB,
+        optionC,
+        optionD,
+        correctOption: parseCorrectOptionKey(rawCorrect, true),
+        explanation,
+      });
+    } else {
+      const [prompt, optionA, optionB, rawCorrect = 'A', explanation = ''] = cols;
+      candidateRows.push({
+        id: `up-${Date.now()}-${i}`,
+        prompt,
+        optionA,
+        optionB,
+        correctOption: parseCorrectOptionKey(rawCorrect, false),
+        explanation,
+      });
+    }
   }
 
   const valid = sanitizeCustomQuestions(candidateRows);
@@ -160,14 +205,35 @@ export function parseUploadedQuestionsText(
       questions: [],
       skippedCount,
       error:
-        'Tidak ada soal valid ditemukan. Gunakan kolom: pertanyaan,pilihan_a,pilihan_b,jawaban_benar(A/B),pembahasan',
+        'Tidak ada soal valid ditemukan. Gunakan kolom 2 pilihan: pertanyaan,pilihan_a,pilihan_b,jawaban_benar(A/B),pembahasan — atau 4 pilihan: pertanyaan,pilihan_a,pilihan_b,pilihan_c,pilihan_d,jawaban_benar(A/B/C/D),pembahasan',
     };
   }
 
   return { ok: true, questions: valid, skippedCount };
 }
 
-export function buildCustomQuestionsCsvTemplate(): string {
+export function buildCustomQuestionsCsvTemplate(choiceCount: QuizChoiceCount = 2): string {
+  if (choiceCount === 4) {
+    return [
+      'pertanyaan,pilihan_a,pilihan_b,pilihan_c,pilihan_d,jawaban_benar,pembahasan',
+      '"Berapakah hasil dari 25 x 4?",100,80,90,120,A,"25 x 4 = 100"',
+      '"Sebuah persegi memiliki sisi 9 cm. Berapakah luasnya?",36 cm2,81 cm2,72 cm2,64 cm2,B,"Luas = 9 x 9 = 81 cm2"',
+      '"Hasil dari 144 : 12 adalah...",10,14,12,16,C,"144 : 12 = 12"',
+      '"Berapakah hasil dari 45 + 15 x 4 - 20?",220,75,95,85,D,"Perkalian dahulu: 15 x 4 = 60, lalu 45 + 60 - 20 = 85"',
+      '"Sederhanakan pecahan 2/3 + 3/4!",17/12,5/7,11/12,13/12,A,"Samakan penyebut menjadi 12: 8/12 + 9/12 = 17/12"',
+      '"Tas seharga Rp200.000 diskon 25%. Berapa harga setelah diskon?",Rp175.000,Rp150.000,Rp160.000,Rp140.000,B,"Diskon 25% = Rp50.000, harga bayar = Rp150.000"',
+      '"Suhu kulkas awalnya -6 C lalu naik 14 C. Berapa suhu sekarang?",-20 C,6 C,8 C,20 C,C,"-6 + 14 = 8 C"',
+      '"Berapakah hasil dari 9^2 - akar(144)?",6,57,72,69,D,"81 - 12 = 69"',
+      '"Tentukan nilai x dari persamaan 5x - 9 = 2x + 12!",x = 7,x = 3,x = 6,x = 9,A,"3x = 21 maka x = 7"',
+      '"Segitiga siku-siku memiliki alas 6 cm dan tinggi 8 cm. Berapa sisi miringnya?",14 cm,10 cm,12 cm,9 cm,B,"c = akar(36 + 64) = 10 cm"',
+      '"Keliling lingkaran dengan jari-jari 7 m (pi = 22/7) adalah...",22 m,154 m,44 m,88 m,C,"Keliling = 2 x 22/7 x 7 = 44 m"',
+      '"Sebuah kubus memiliki rusuk 5 cm. Berapakah volumenya?",25 cm3,150 cm3,75 cm3,125 cm3,D,"Volume = 5 x 5 x 5 = 125 cm3"',
+      '"Lanjutkan pola bilangan Fibonacci: 2, 3, 5, 8, 13, 21, ...",34,32,35,29,A,"13 + 21 = 34"',
+      '"Berapakah jumlah 10 bilangan asli pertama (1 + 2 + ... + 10)?",50,55,45,60,B,"10 x 11 / 2 = 55"',
+      '"Jika 3 pekerja selesai dalam 8 hari, berapa hari untuk 6 pekerja?",16 hari,6 hari,4 hari,3 hari,C,"(3 x 8) : 6 = 4 hari"',
+    ].join('\n');
+  }
+
   return [
     'pertanyaan,pilihan_a,pilihan_b,jawaban_benar,pembahasan',
     '"Berapakah hasil dari 25 x 4?",100,80,A,"25 x 4 = 100"',

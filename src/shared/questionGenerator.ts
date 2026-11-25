@@ -1,10 +1,19 @@
 import {
+  AnswerOptionKey,
   CustomQuestionItem,
   DifficultyLevel,
   MATH_CATEGORIES,
   MathCategoryId,
   QuestionSourceMode,
+  QuizChoiceCount,
 } from './constants';
+
+export interface MathQuestionOptions {
+  A: string;
+  B: string;
+  C?: string;
+  D?: string;
+}
 
 export interface MathQuestion {
   id: string;
@@ -13,11 +22,9 @@ export interface MathQuestion {
   categoryName: string;
   difficulty: DifficultyLevel;
   prompt: string;
-  options: {
-    A: string;
-    B: string;
-  };
-  correctOption: 'A' | 'B';
+  choiceCount: QuizChoiceCount;
+  options: MathQuestionOptions;
+  correctOption: AnswerOptionKey;
   explanation: string;
   signature: string;
 }
@@ -30,10 +37,8 @@ export interface PublicMathQuestion {
   categoryName: string;
   difficulty: DifficultyLevel;
   prompt: string;
-  options: {
-    A: string;
-    B: string;
-  };
+  choiceCount: QuizChoiceCount;
+  options: MathQuestionOptions;
   timerSeconds: number;
 }
 
@@ -561,17 +566,219 @@ export function getCategoriesForDifficulty(
   return MATH_CATEGORIES.filter((c) => c.difficulty === difficulty).map((c) => c.id);
 }
 
+const ALL_OPTION_KEYS: AnswerOptionKey[] = ['A', 'B', 'C', 'D'];
+
+function shuffleWithRng<T>(items: T[], rng: () => number): T[] {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
 /**
- * Generates a unique, mathematically verified 2-choice (A / B) math question.
+ * Generates format-matched, mathematically plausible distractors for a given answer string.
+ * Returns null if the answer is non-mathematical plain text and extra distractors cannot be
+ * synthesized cleanly without inventing fake text.
+ */
+function synthesizePlausibleDistractors(
+  correctStr: string,
+  existingWrong: string[],
+  neededCount: number,
+  rng: () => number
+): string[] | null {
+  const seen = new Set<string>([correctStr.toLowerCase()]);
+  const result: string[] = [];
+
+  const tryAdd = (candidate: string) => {
+    const clean = candidate.trim();
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(clean);
+  };
+
+  for (const w of existingWrong) {
+    tryAdd(w);
+    if (result.length >= neededCount) return result.slice(0, neededCount);
+  }
+
+  // 1. Indonesian Rupiah currency: Rp150.000
+  const rupiahMatch = correctStr.match(/^Rp\s*([\d.]+)$/i);
+  if (rupiahMatch) {
+    const val = Number(rupiahMatch[1].replace(/\./g, ''));
+    if (Number.isFinite(val)) {
+      const step = val >= 100000 ? 10000 : val >= 20000 ? 5000 : 2000;
+      const offsets = shuffleWithRng([-3, -2, -1, 1, 2, 3, 4], rng);
+      for (const off of offsets) {
+        const candidateVal = val + off * step;
+        if (candidateVal > 0) {
+          tryAdd(`Rp${candidateVal.toLocaleString('id-ID')}`);
+        }
+        if (result.length >= neededCount) return result.slice(0, neededCount);
+      }
+    }
+  }
+
+  // 2. Fraction: e.g. 3/4, -5/6, 17/12
+  const fracMatch = correctStr.match(/^(-?\d+)\s*\/\s*(\d+)$/);
+  if (fracMatch) {
+    const num = Number(fracMatch[1]);
+    const den = Number(fracMatch[2]);
+    if (Number.isFinite(num) && Number.isFinite(den) && den > 0) {
+      const candidates = shuffleWithRng(
+        [
+          `${num + 1}/${den}`,
+          `${num > 1 ? num - 1 : num + 2}/${den}`,
+          `${num}/${den + 1}`,
+          `${num}/${den + 2}`,
+          `${num + 2}/${den}`,
+          `${num + 1}/${den + 1}`,
+          `${num + 3}/${den + 2}`,
+        ],
+        rng
+      );
+      for (const c of candidates) {
+        tryAdd(c);
+        if (result.length >= neededCount) return result.slice(0, neededCount);
+      }
+    }
+  }
+
+  // 3. Linear equation result: e.g. x = 7, y = -3
+  const eqMatch = correctStr.match(/^([a-zA-Z])\s*=\s*(-?\d+)$/);
+  if (eqMatch) {
+    const variable = eqMatch[1];
+    const val = Number(eqMatch[2]);
+    const deltas = shuffleWithRng([-4, -3, -2, -1, 1, 2, 3, 4, 5], rng);
+    for (const d of deltas) {
+      tryAdd(`${variable} = ${val + d}`);
+      if (result.length >= neededCount) return result.slice(0, neededCount);
+    }
+  }
+
+  // 4. Algebraic linear expression: e.g. 3x + 12 or x + 6 or 2x - 5
+  const algMatch = correctStr.match(/^(-?\d*)([a-zA-Z])\s*([+−-])\s*(\d+)$/);
+  if (algMatch) {
+    const coeffStr = algMatch[1];
+    const coeff = coeffStr === '' ? 1 : coeffStr === '-' ? -1 : Number(coeffStr);
+    const variable = algMatch[2];
+    const sign = algMatch[3];
+    const constVal = Number(algMatch[4]);
+    const fmtCoeff = (c: number) => (c === 1 ? '' : c === -1 ? '-' : String(c));
+    const altSign = sign === '+' ? '−' : '+';
+    const candidates = shuffleWithRng(
+      [
+        `${fmtCoeff(coeff)}${variable} ${sign} ${Math.max(1, constVal + 2)}`,
+        `${fmtCoeff(coeff)}${variable} ${sign} ${Math.max(1, constVal - 2)}`,
+        `${fmtCoeff(coeff + 1)}${variable} ${sign} ${constVal}`,
+        `${fmtCoeff(Math.max(1, coeff - 1))}${variable} ${sign} ${constVal}`,
+        `${fmtCoeff(coeff)}${variable} ${altSign} ${constVal}`,
+        `${fmtCoeff(coeff + 2)}${variable} ${sign} ${constVal + 1}`,
+      ],
+      rng
+    );
+    for (const c of candidates) {
+      tryAdd(c);
+      if (result.length >= neededCount) return result.slice(0, neededCount);
+    }
+  }
+
+  // 5. Pure integer or integer with unit/suffix (e.g. "42", "-15", "81 cm²", "44 m", "120 poin", "8 C")
+  const numWithUnitMatch = correctStr.match(/^(-?\d+(?:[.,]\d+)?)(\s*.*)$/);
+  if (numWithUnitMatch) {
+    const rawNum = numWithUnitMatch[1].replace(',', '.');
+    const suffix = numWithUnitMatch[2] ?? '';
+    const isDecimal = rawNum.includes('.');
+    const val = Number(rawNum);
+    if (Number.isFinite(val)) {
+      const absVal = Math.abs(val);
+      const allowNegative = val < 0;
+      const smallDeltas = isDecimal
+        ? [-2, -1.5, -1, -0.5, 0.5, 1, 1.5, 2]
+        : absVal <= 20
+        ? [-4, -3, -2, -1, 1, 2, 3, 4, 5, 6]
+        : absVal <= 120
+        ? [-12, -10, -8, -5, -4, -2, 2, 4, 5, 8, 10, 12]
+        : [-25, -20, -15, -10, -5, 5, 10, 15, 20, 25];
+
+      const pool: number[] = [];
+      if (val < 0) {
+        pool.push(-val); // classic sign-error trap
+      }
+      for (const d of shuffleWithRng(smallDeltas, rng)) {
+        const next = isDecimal ? Number((val + d).toFixed(2)) : Math.round(val + d);
+        if (!allowNegative && next <= 0) continue;
+        pool.push(next);
+      }
+
+      for (const candidateNum of pool) {
+        const formatted = isDecimal
+          ? String(candidateNum).replace('.', numWithUnitMatch[1].includes(',') ? ',' : '.')
+          : String(candidateNum);
+        tryAdd(`${formatted}${suffix}`);
+        if (result.length >= neededCount) return result.slice(0, neededCount);
+      }
+
+      // Guaranteed positive fallback offsets
+      let step = 1;
+      while (result.length < neededCount && step < 40) {
+        tryAdd(`${Math.round(val + step)}${suffix}`);
+        step++;
+      }
+      if (result.length >= neededCount) return result.slice(0, neededCount);
+    }
+  }
+
+  return null;
+}
+
+function buildOptionsFromChoices(
+  correctStr: string,
+  distractors: string[],
+  choiceCount: QuizChoiceCount,
+  rng: () => number
+): { options: MathQuestionOptions; correctOption: AnswerOptionKey; actualChoiceCount: QuizChoiceCount } {
+  const uniqueDistractors = distractors.filter(
+    (d, idx, arr) =>
+      d.trim().length > 0 &&
+      d.toLowerCase() !== correctStr.toLowerCase() &&
+      arr.findIndex((x) => x.toLowerCase() === d.toLowerCase()) === idx
+  );
+
+  const effectiveCount: QuizChoiceCount =
+    choiceCount === 4 && uniqueDistractors.length >= 3 ? 4 : 2;
+  const chosenPool = [correctStr, ...uniqueDistractors.slice(0, effectiveCount - 1)];
+  const shuffled = shuffleWithRng(chosenPool, rng);
+
+  const options: MathQuestionOptions = {
+    A: shuffled[0],
+    B: shuffled[1],
+    ...(effectiveCount === 4 ? { C: shuffled[2], D: shuffled[3] } : {}),
+  };
+
+  const correctIdx = shuffled.findIndex((s) => s === correctStr);
+  const correctOption: AnswerOptionKey = ALL_OPTION_KEYS[Math.max(0, correctIdx)] ?? 'A';
+
+  return { options, correctOption, actualChoiceCount: effectiveCount };
+}
+
+/**
+ * Generates a unique, mathematically verified 2-choice (A/B) or 4-choice (A/B/C/D) math question.
  * Guarantees:
- * - Strictly 2 choices: A and B
- * - Randomized correct option ('A' or 'B')
- * - Options A and B are never identical
+ * - Strictly 2 choices (A, B) or 4 choices (A, B, C, D) based on choiceCount
+ * - Randomized correct option across active choices
+ * - All answer options are strictly distinct
  * - Avoids repeating previously seen signatures in the same session
  */
 export function generateMathQuestion(options: {
   difficulty: DifficultyLevel;
   categories?: MathCategoryId[];
+  choiceCount?: QuizChoiceCount;
   questionNumber?: number;
   usedSignatures?: Set<string>;
   rng?: () => number;
@@ -580,6 +787,7 @@ export function generateMathQuestion(options: {
   const pool = getCategoriesForDifficulty(options.difficulty, options.categories);
   const usedSignatures = options.usedSignatures ?? new Set<string>();
   const questionNumber = options.questionNumber ?? usedSignatures.size + 1;
+  const targetChoiceCount: QuizChoiceCount = options.choiceCount === 4 ? 4 : 2;
 
   let raw: RawQuestionTemplate | null = null;
   let chosenCategory: MathCategoryId = pool[0] ?? 'addition';
@@ -602,13 +810,24 @@ export function generateMathQuestion(options: {
   // Ensure wrongAnswer never equals correctAnswer
   const correctStr = String(raw.correctAnswer).trim();
   let wrongStr = String(raw.wrongAnswer).trim();
-  if (wrongStr === correctStr) {
+  if (wrongStr.toLowerCase() === correctStr.toLowerCase()) {
     wrongStr = `${correctStr}0`;
   }
 
-  // Randomize whether A or B holds the correct answer
-  const correctIsA = rng() < 0.5;
-  const correctOption: 'A' | 'B' = correctIsA ? 'A' : 'B';
+  let distractors: string[] = [wrongStr];
+  if (targetChoiceCount === 4) {
+    const generated = synthesizePlausibleDistractors(correctStr, [wrongStr], 3, rng);
+    if (generated && generated.length >= 3) {
+      distractors = generated;
+    }
+  }
+
+  const { options: builtOptions, correctOption, actualChoiceCount } = buildOptionsFromChoices(
+    correctStr,
+    distractors,
+    targetChoiceCount,
+    rng
+  );
   const catInfo = MATH_CATEGORIES.find((c) => c.id === chosenCategory);
 
   return {
@@ -618,10 +837,8 @@ export function generateMathQuestion(options: {
     categoryName: catInfo?.name ?? 'Matematika',
     difficulty: catInfo?.difficulty ?? options.difficulty,
     prompt: raw.prompt,
-    options: {
-      A: correctIsA ? correctStr : wrongStr,
-      B: correctIsA ? wrongStr : correctStr,
-    },
+    choiceCount: actualChoiceCount,
+    options: builtOptions,
     correctOption,
     explanation: raw.explanation,
     signature: raw.signature,
@@ -640,10 +857,26 @@ export function sanitizeCustomQuestions(raw: unknown): CustomQuestionItem[] {
     const prompt = String(item.prompt ?? '').trim().slice(0, 240);
     const optionA = String(item.optionA ?? '').trim().slice(0, 100);
     const optionB = String(item.optionB ?? '').trim().slice(0, 100);
+    const rawC = String(item.optionC ?? '').trim().slice(0, 100);
+    const rawD = String(item.optionD ?? '').trim().slice(0, 100);
     if (!prompt || !optionA || !optionB) continue;
     if (optionA.toLowerCase() === optionB.toLowerCase()) continue;
 
-    const correctOption: 'A' | 'B' = item.correctOption === 'B' ? 'B' : 'A';
+    const hasValidFour =
+      rawC.length > 0 &&
+      rawD.length > 0 &&
+      new Set([optionA, optionB, rawC, rawD].map((s) => s.toLowerCase())).size === 4;
+
+    const rawCorrect = String(item.correctOption ?? 'A').trim().toUpperCase();
+    let correctOption: AnswerOptionKey = 'A';
+    if (hasValidFour && (rawCorrect === 'A' || rawCorrect === 'B' || rawCorrect === 'C' || rawCorrect === 'D')) {
+      correctOption = rawCorrect;
+    } else if (rawCorrect === 'B') {
+      correctOption = 'B';
+    } else {
+      correctOption = 'A';
+    }
+
     const explanation = String(item.explanation ?? '').trim().slice(0, 240);
     let id = String(item.id ?? `cq-${i + 1}`).trim().slice(0, 48);
     if (!id || seenIds.has(id)) {
@@ -656,6 +889,7 @@ export function sanitizeCustomQuestions(raw: unknown): CustomQuestionItem[] {
       prompt,
       optionA,
       optionB,
+      ...(hasValidFour ? { optionC: rawC, optionD: rawD } : {}),
       correctOption,
       ...(explanation ? { explanation } : {}),
     });
@@ -668,10 +902,120 @@ function buildQuestionFromCustomItem(
   item: CustomQuestionItem,
   difficulty: DifficultyLevel,
   questionNumber: number,
+  choiceCount: QuizChoiceCount,
   rng: () => number
 ): MathQuestion {
-  const correctValue = item.correctOption === 'A' ? item.optionA : item.optionB;
-  const fallbackExplanation = `Jawaban yang benar adalah ${item.correctOption}: ${correctValue}`;
+  const hasAuthoredFour = Boolean(item.optionC && item.optionD);
+  const authoredMap: Record<AnswerOptionKey, string | undefined> = {
+    A: item.optionA,
+    B: item.optionB,
+    C: item.optionC,
+    D: item.optionD,
+  };
+  const correctValue = authoredMap[item.correctOption] ?? item.optionA;
+
+  // Case 1: 4-choice room and teacher authored all 4 choices -> preserve exact A/B/C/D mapping
+  if (choiceCount === 4 && hasAuthoredFour && item.optionC && item.optionD) {
+    const fallbackExplanation = `Jawaban yang benar adalah ${item.correctOption}: ${correctValue}`;
+    return {
+      id: `q-custom-${item.id}-${Date.now()}-${Math.floor(rng() * 10000)}`,
+      questionNumber,
+      category: 'custom',
+      categoryName: 'Soal Buatan Guru',
+      difficulty,
+      prompt: item.prompt,
+      choiceCount: 4,
+      options: {
+        A: item.optionA,
+        B: item.optionB,
+        C: item.optionC,
+        D: item.optionD,
+      },
+      correctOption: item.correctOption,
+      explanation: item.explanation?.trim() ? item.explanation.trim() : fallbackExplanation,
+      signature: `custom:${item.id}`,
+    };
+  }
+
+  // Case 2: 2-choice room and teacher authored 2 choices -> preserve exact A/B mapping
+  if (choiceCount === 2 && !hasAuthoredFour) {
+    const safeCorrect: 'A' | 'B' = item.correctOption === 'B' ? 'B' : 'A';
+    const fallbackExplanation = `Jawaban yang benar adalah ${safeCorrect}: ${correctValue}`;
+    return {
+      id: `q-custom-${item.id}-${Date.now()}-${Math.floor(rng() * 10000)}`,
+      questionNumber,
+      category: 'custom',
+      categoryName: 'Soal Buatan Guru',
+      difficulty,
+      prompt: item.prompt,
+      choiceCount: 2,
+      options: {
+        A: item.optionA,
+        B: item.optionB,
+      },
+      correctOption: safeCorrect,
+      explanation: item.explanation?.trim() ? item.explanation.trim() : fallbackExplanation,
+      signature: `custom:${item.id}`,
+    };
+  }
+
+  // Case 3: 2-choice room with 4-choice custom question -> keep correct + 1 teacher distractor
+  if (choiceCount === 2 && hasAuthoredFour) {
+    const wrongs = ALL_OPTION_KEYS.filter((k) => k !== item.correctOption)
+      .map((k) => authoredMap[k])
+      .filter((v): v is string => Boolean(v));
+    const pickedWrong = wrongs[Math.floor(rng() * wrongs.length)] ?? item.optionB;
+    const { options, correctOption } = buildOptionsFromChoices(
+      correctValue,
+      [pickedWrong],
+      2,
+      rng
+    );
+    const fallbackExplanation = `Jawaban yang benar adalah ${correctOption}: ${correctValue}`;
+    return {
+      id: `q-custom-${item.id}-${Date.now()}-${Math.floor(rng() * 10000)}`,
+      questionNumber,
+      category: 'custom',
+      categoryName: 'Soal Buatan Guru',
+      difficulty,
+      prompt: item.prompt,
+      choiceCount: 2,
+      options,
+      correctOption,
+      explanation: item.explanation?.trim() ? item.explanation.trim() : fallbackExplanation,
+      signature: `custom:${item.id}`,
+    };
+  }
+
+  // Case 4: 4-choice room with 2-choice custom/preset question -> synthesize 2 plausible math distractors if numeric/math
+  const primaryWrong = item.correctOption === 'A' ? item.optionB : item.optionA;
+  const synthesized = synthesizePlausibleDistractors(correctValue, [primaryWrong], 3, rng);
+  if (synthesized && synthesized.length >= 3) {
+    const { options, correctOption, actualChoiceCount } = buildOptionsFromChoices(
+      correctValue,
+      synthesized,
+      4,
+      rng
+    );
+    const fallbackExplanation = `Jawaban yang benar adalah ${correctOption}: ${correctValue}`;
+    return {
+      id: `q-custom-${item.id}-${Date.now()}-${Math.floor(rng() * 10000)}`,
+      questionNumber,
+      category: 'custom',
+      categoryName: 'Soal Buatan Guru',
+      difficulty,
+      prompt: item.prompt,
+      choiceCount: actualChoiceCount,
+      options,
+      correctOption,
+      explanation: item.explanation?.trim() ? item.explanation.trim() : fallbackExplanation,
+      signature: `custom:${item.id}`,
+    };
+  }
+
+  // Non-numeric custom 2-choice question: preserve authentic 2 options cleanly
+  const safeCorrect: 'A' | 'B' = item.correctOption === 'B' ? 'B' : 'A';
+  const fallbackExplanation = `Jawaban yang benar adalah ${safeCorrect}: ${correctValue}`;
   return {
     id: `q-custom-${item.id}-${Date.now()}-${Math.floor(rng() * 10000)}`,
     questionNumber,
@@ -679,18 +1023,19 @@ function buildQuestionFromCustomItem(
     categoryName: 'Soal Buatan Guru',
     difficulty,
     prompt: item.prompt,
+    choiceCount: 2,
     options: {
       A: item.optionA,
       B: item.optionB,
     },
-    correctOption: item.correctOption,
+    correctOption: safeCorrect,
     explanation: item.explanation?.trim() ? item.explanation.trim() : fallbackExplanation,
     signature: `custom:${item.id}`,
   };
 }
 
 /**
- * Picks the next question for a key touch based on the room's questionSource:
+ * Picks the next question for a key touch based on the room's questionSource and choiceCount:
  * - 'auto': generated math questions only
  * - 'custom_only': teacher-authored questions (cycles cleanly if > customQuestions.length keys)
  * - 'mixed': alternates / mixes teacher-authored questions with generated math questions
@@ -698,6 +1043,7 @@ function buildQuestionFromCustomItem(
 export function pickQuestionForRoom(options: {
   difficulty: DifficultyLevel;
   categories?: MathCategoryId[];
+  choiceCount?: QuizChoiceCount;
   questionSource?: QuestionSourceMode;
   customQuestions?: CustomQuestionItem[];
   questionNumber?: number;
@@ -708,6 +1054,7 @@ export function pickQuestionForRoom(options: {
   const usedSignatures = options.usedSignatures ?? new Set<string>();
   const questionNumber = options.questionNumber ?? usedSignatures.size + 1;
   const source: QuestionSourceMode = options.questionSource ?? 'auto';
+  const choiceCount: QuizChoiceCount = options.choiceCount === 4 ? 4 : 2;
   const customList = sanitizeCustomQuestions(options.customQuestions ?? []);
 
   if (customList.length > 0 && (source === 'custom_only' || source === 'mixed')) {
@@ -721,13 +1068,14 @@ export function pickQuestionForRoom(options: {
       const pool = unseenCustom.length > 0 ? unseenCustom : customList;
       const chosen = pool[Math.floor(rng() * pool.length)] ?? customList[0];
       usedSignatures.add(`custom:${chosen.id}`);
-      return buildQuestionFromCustomItem(chosen, options.difficulty, questionNumber, rng);
+      return buildQuestionFromCustomItem(chosen, options.difficulty, questionNumber, choiceCount, rng);
     }
   }
 
   return generateMathQuestion({
     difficulty: options.difficulty,
     categories: options.categories,
+    choiceCount,
     questionNumber,
     usedSignatures,
     rng,

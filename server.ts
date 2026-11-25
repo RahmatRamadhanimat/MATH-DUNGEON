@@ -6,6 +6,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'node:path';
 import os from 'node:os';
 import {
+  AnswerOptionKey,
   CHARACTER_PRESETS,
   DEFAULT_ROOM_SETTINGS,
   Direction,
@@ -859,6 +860,7 @@ async function startServer() {
               categoryName: existing.categoryName,
               difficulty: existing.difficulty,
               prompt: existing.prompt,
+              choiceCount: existing.choiceCount,
               options: existing.options,
               timerSeconds: remainingTimer,
             } satisfies PublicMathQuestion);
@@ -872,6 +874,7 @@ async function startServer() {
         const q = pickQuestionForRoom({
           difficulty: room.settings.difficulty,
           categories: room.settings.categories,
+          choiceCount: room.settings.quizChoiceCount,
           questionSource: room.settings.questionSource,
           customQuestions: room.settings.customQuestions,
           usedSignatures: room.usedQuestionSignatures,
@@ -892,6 +895,7 @@ async function startServer() {
           categoryName: q.categoryName,
           difficulty: q.difficulty,
           prompt: q.prompt,
+          choiceCount: q.choiceCount,
           options: q.options,
           timerSeconds: room.settings.questionTimerSeconds,
         };
@@ -909,7 +913,7 @@ async function startServer() {
           playerId?: string;
           keyId: string;
           questionId?: string;
-          selectedOption: 'A' | 'B' | 'TIMEOUT';
+          selectedOption: AnswerOptionKey | 'TIMEOUT';
         },
         ack?: (res: SubmitAnswerAck) => void
       ) => {

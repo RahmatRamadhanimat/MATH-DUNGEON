@@ -529,6 +529,76 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
                 </div>
               </div>
 
+              {/* Quiz Answer Choice Format Selector (2 Choices A/B vs 4 Choices A/B/C/D) */}
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-xs font-semibold text-slate-300">
+                    Format Pilihan Jawaban Kuis
+                  </span>
+                  <span
+                    data-testid="lobby-active-choice-format"
+                    className={`text-xs font-semibold ${
+                      (settings.quizChoiceCount ?? 2) === 4 ? 'text-emerald-300' : 'text-amber-300'
+                    }`}
+                  >
+                    {(settings.quizChoiceCount ?? 2) === 4
+                      ? '4 Pilihan (A / B / C / D)'
+                      : '2 Pilihan (A / B)'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {(
+                    [
+                      {
+                        count: 2 as const,
+                        title: 'Mode Cepat · 2 Pilihan (A / B)',
+                        desc: 'Cocok untuk sesi kilat & siswa kelas dasar agar ritme eksplorasi cepat.',
+                      },
+                      {
+                        count: 4 as const,
+                        title: 'Mode Tantangan · 4 Pilihan (A / B / C / D)',
+                        desc: 'Siswa harus benar-benar menghitung dan tidak mudah menebak 50:50.',
+                      },
+                    ] as const
+                  ).map((opt) => {
+                    const active = (settings.quizChoiceCount ?? 2) === opt.count;
+                    return (
+                      <button
+                        key={opt.count}
+                        type="button"
+                        data-testid={`lobby-choice-count-${opt.count}`}
+                        aria-pressed={active}
+                        disabled={localRole !== 'teacher'}
+                        onClick={() => {
+                          retroAudio.playButtonClick();
+                          onUpdateSettings({ quizChoiceCount: opt.count });
+                        }}
+                        className={`rounded-md min-h-[60px] p-3 text-left border transition-colors ${
+                          active
+                            ? opt.count === 4
+                              ? 'bg-emerald-500/16 border-emerald-400 text-white'
+                              : 'bg-amber-500/16 border-amber-400 text-white'
+                            : 'bg-[#0b101b] border-slate-700/80 text-slate-300 hover:border-slate-500 disabled:opacity-75'
+                        }`}
+                      >
+                        <div
+                          className={`text-xs sm:text-sm font-bold mb-1 ${
+                            active
+                              ? opt.count === 4
+                                ? 'text-emerald-300'
+                                : 'text-amber-300'
+                              : 'text-slate-100'
+                          }`}
+                        >
+                          {opt.title}
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-snug">{opt.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Maze Biome Theme Selector */}
               <div>
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -788,6 +858,7 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
             <QuestionBankManager
               localRole={localRole}
               questionSource={settings.questionSource}
+              quizChoiceCount={settings.quizChoiceCount ?? 2}
               customQuestions={settings.customQuestions ?? []}
               studentVisibleCount={customQuestionCount}
               onChangeQuestionSource={(source) => onUpdateSettings({ questionSource: source })}

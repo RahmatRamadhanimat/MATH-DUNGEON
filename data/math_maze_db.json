@@ -2612,6 +2612,71 @@
       "totalCorrect": 0,
       "totalWrong": 0,
       "lastActiveAt": "2026-11-25T01:41:40.908Z"
+    },
+    "plr-xplyoa4-mwvmvl2a": {
+      "id": "plr-xplyoa4-mwvmvl2a",
+      "name": "Arya Ksatria",
+      "role": "teacher",
+      "characterId": "scholar",
+      "outfitColor": "#0891B2",
+      "gamesPlayed": 0,
+      "totalScore": 0,
+      "totalKeys": 0,
+      "totalCorrect": 0,
+      "totalWrong": 0,
+      "lastActiveAt": "2026-11-25T04:38:44.046Z"
+    },
+    "plr-bvw56d7-mwvmxaj5": {
+      "id": "plr-bvw56d7-mwvmxaj5",
+      "name": "Arya Ksatria",
+      "role": "student",
+      "characterId": "knight",
+      "outfitColor": "#2563EB",
+      "gamesPlayed": 0,
+      "totalScore": 0,
+      "totalKeys": 0,
+      "totalCorrect": 0,
+      "totalWrong": 0,
+      "lastActiveAt": "2026-11-25T04:40:20.499Z"
+    },
+    "teacher-5TsKPwBiuYkUawBVAAAD": {
+      "id": "teacher-5TsKPwBiuYkUawBVAAAD",
+      "name": "Bu Guru",
+      "role": "teacher",
+      "characterId": "scholar",
+      "outfitColor": "#0891B2",
+      "gamesPlayed": 0,
+      "totalScore": 0,
+      "totalKeys": 0,
+      "totalCorrect": 0,
+      "totalWrong": 0,
+      "lastActiveAt": "2026-11-25T04:40:57.589Z"
+    },
+    "teacher-tt3smtGpXyTF6bSdAAAE": {
+      "id": "teacher-tt3smtGpXyTF6bSdAAAE",
+      "name": "Bu Guru",
+      "role": "teacher",
+      "characterId": "scholar",
+      "outfitColor": "#0891B2",
+      "gamesPlayed": 0,
+      "totalScore": 0,
+      "totalKeys": 0,
+      "totalCorrect": 0,
+      "totalWrong": 0,
+      "lastActiveAt": "2026-11-25T04:41:08.887Z"
+    },
+    "s-live-4": {
+      "id": "s-live-4",
+      "name": "Bima",
+      "role": "student",
+      "characterId": "knight",
+      "outfitColor": "#2563EB",
+      "gamesPlayed": 0,
+      "totalScore": 0,
+      "totalKeys": 0,
+      "totalCorrect": 0,
+      "totalWrong": 0,
+      "lastActiveAt": "2026-11-25T04:41:08.894Z"
     }
   },
   "gameHistory": [
@@ -4851,10 +4916,10 @@
     },
     "basic_ops": {
       "category": "basic_ops",
-      "attempts": 6,
+      "attempts": 7,
       "correct": 5,
-      "wrong": 1,
-      "totalResponseMs": 16986
+      "wrong": 2,
+      "totalResponseMs": 17166
     },
     "custom": {
       "category": "custom",
@@ -5559,6 +5624,545 @@
           "text": "Permainan dimulai! Jelajahi labirin dan temukan kunci matematika!",
           "type": "system",
           "timestamp": 1795570900973
+        }
+      ]
+    },
+    "MATH-3826": {
+      "code": "MATH-3826",
+      "teacherId": "plr-xplyoa4-mwvmvl2a",
+      "teacherName": "Arya Ksatria",
+      "locked": false,
+      "status": "lobby",
+      "settings": {
+        "mode": "coop",
+        "difficulty": "easy",
+        "categories": [
+          "addition",
+          "subtraction",
+          "multiplication",
+          "division",
+          "basic_ops"
+        ],
+        "questionSource": "custom_only",
+        "quizChoiceCount": 4,
+        "customQuestions": [
+          {
+            "id": "cq-1795581534159-qj2b",
+            "prompt": "Berapakah hasil dari 12 x 12?",
+            "optionA": "124",
+            "optionB": "132",
+            "optionC": "144",
+            "optionD": "156",
+            "correctOption": "C"
+          }
+        ],
+        "keyCount": 5,
+        "mapLevel": 1,
+        "biome": "stone_dungeon",
+        "maxPlayers": 45,
+        "lives": 3,
+        "durationSeconds": 300,
+        "questionTimerSeconds": 25,
+        "teamCount": 4,
+        "teamAssignmentMode": "random",
+        "eliminatedBehavior": "spectator"
+      },
+      "mazeSeed": 777756128,
+      "remainingSeconds": 300,
+      "startedAt": null,
+      "createdAt": 1795581524046,
+      "sharedKeysCollected": 0,
+      "teamKeysCollected": {
+        "red": 0,
+        "blue": 0,
+        "green": 0,
+        "yellow": 0,
+        "purple": 0
+      },
+      "doorOpen": false,
+      "teamDoorOpen": {
+        "red": false,
+        "blue": false,
+        "green": false,
+        "yellow": false,
+        "purple": false
+      },
+      "playerDoorOpen": [],
+      "collectedKeys": [
+        {
+          "id": "key-1",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-2",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-3",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-4",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-5",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        }
+      ],
+      "players": [
+        {
+          "id": "plr-xplyoa4-mwvmvl2a",
+          "name": "Arya Ksatria",
+          "role": "teacher",
+          "characterId": "scholar",
+          "outfitColor": "#0891B2",
+          "teamId": null,
+          "ready": true,
+          "x": 102,
+          "y": 102,
+          "direction": "right",
+          "score": 0,
+          "lives": 3,
+          "keysCollected": 0,
+          "correctAnswers": 0,
+          "wrongAnswers": 0,
+          "status": "active",
+          "completionTimeSeconds": null
+        }
+      ],
+      "chatHistory": [
+        {
+          "id": "sys-1795581524046",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Room MATH-3826 dibuat oleh Arya Ksatria. Maksimal 45 siswa.",
+          "type": "system",
+          "timestamp": 1795581524046
+        }
+      ]
+    },
+    "MATH-8218": {
+      "code": "MATH-8218",
+      "teacherId": "plr-bvw56d7-mwvmxaj5",
+      "teacherName": "Arya Ksatria",
+      "locked": false,
+      "status": "playing",
+      "settings": {
+        "mode": "coop",
+        "difficulty": "easy",
+        "categories": [
+          "addition",
+          "subtraction",
+          "multiplication",
+          "division",
+          "basic_ops"
+        ],
+        "questionSource": "custom_only",
+        "quizChoiceCount": 4,
+        "customQuestions": [
+          {
+            "id": "cq-1795581614030-ow2s",
+            "prompt": "Berapakah hasil dari 12 x 12?",
+            "optionA": "124",
+            "optionB": "132",
+            "optionC": "144",
+            "optionD": "156",
+            "correctOption": "C"
+          }
+        ],
+        "keyCount": 5,
+        "mapLevel": 1,
+        "biome": "stone_dungeon",
+        "maxPlayers": 45,
+        "lives": 3,
+        "durationSeconds": 300,
+        "questionTimerSeconds": 25,
+        "teamCount": 4,
+        "teamAssignmentMode": "random",
+        "eliminatedBehavior": "spectator"
+      },
+      "mazeSeed": 460035876,
+      "remainingSeconds": 296,
+      "startedAt": 1795581620547,
+      "createdAt": 1795581606077,
+      "sharedKeysCollected": 0,
+      "teamKeysCollected": {
+        "red": 0,
+        "blue": 0,
+        "green": 0,
+        "yellow": 0,
+        "purple": 0
+      },
+      "doorOpen": false,
+      "teamDoorOpen": {
+        "red": false,
+        "blue": false,
+        "green": false,
+        "yellow": false,
+        "purple": false
+      },
+      "playerDoorOpen": [],
+      "collectedKeys": [
+        {
+          "id": "key-1",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-2",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-3",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-4",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-5",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        }
+      ],
+      "players": [
+        {
+          "id": "plr-bvw56d7-mwvmxaj5",
+          "name": "Arya Ksatria",
+          "role": "student",
+          "characterId": "knight",
+          "outfitColor": "#2563EB",
+          "teamId": null,
+          "ready": true,
+          "x": 102,
+          "y": 102,
+          "direction": "right",
+          "score": 0,
+          "lives": 3,
+          "keysCollected": 0,
+          "correctAnswers": 0,
+          "wrongAnswers": 0,
+          "status": "active",
+          "completionTimeSeconds": null
+        }
+      ],
+      "chatHistory": [
+        {
+          "id": "sys-1795581606077",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Room MATH-8218 dibuat oleh Arya Ksatria. Maksimal 45 siswa.",
+          "type": "system",
+          "timestamp": 1795581606077
+        },
+        {
+          "id": "sys-1795581620503-460",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Arya Ksatria bergabung ke dalam room.",
+          "type": "system",
+          "timestamp": 1795581620503
+        },
+        {
+          "id": "sys-1795581620547-282",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Permainan dimulai! Jelajahi labirin dan temukan kunci matematika!",
+          "type": "system",
+          "timestamp": 1795581620547
+        }
+      ]
+    },
+    "MATH-8571": {
+      "code": "MATH-8571",
+      "teacherId": "teacher-5TsKPwBiuYkUawBVAAAD",
+      "teacherName": "Bu Guru",
+      "locked": false,
+      "status": "lobby",
+      "settings": {
+        "mode": "coop",
+        "difficulty": "easy",
+        "categories": [
+          "addition",
+          "subtraction",
+          "multiplication",
+          "division",
+          "basic_ops"
+        ],
+        "questionSource": "auto",
+        "quizChoiceCount": 4,
+        "customQuestions": [],
+        "keyCount": 5,
+        "mapLevel": 1,
+        "biome": "stone_dungeon",
+        "maxPlayers": 45,
+        "lives": 3,
+        "durationSeconds": 300,
+        "questionTimerSeconds": 25,
+        "teamCount": 4,
+        "teamAssignmentMode": "random",
+        "eliminatedBehavior": "spectator"
+      },
+      "mazeSeed": 333900784,
+      "remainingSeconds": 300,
+      "startedAt": null,
+      "createdAt": 1795581657589,
+      "sharedKeysCollected": 0,
+      "teamKeysCollected": {
+        "red": 0,
+        "blue": 0,
+        "green": 0,
+        "yellow": 0,
+        "purple": 0
+      },
+      "doorOpen": false,
+      "teamDoorOpen": {
+        "red": false,
+        "blue": false,
+        "green": false,
+        "yellow": false,
+        "purple": false
+      },
+      "playerDoorOpen": [],
+      "collectedKeys": [
+        {
+          "id": "key-1",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-2",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-3",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-4",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-5",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        }
+      ],
+      "players": [
+        {
+          "id": "teacher-5TsKPwBiuYkUawBVAAAD",
+          "name": "Bu Guru",
+          "role": "teacher",
+          "characterId": "scholar",
+          "outfitColor": "#0891B2",
+          "teamId": null,
+          "ready": true,
+          "x": 112,
+          "y": 112,
+          "direction": "right",
+          "score": 0,
+          "lives": 3,
+          "keysCollected": 0,
+          "correctAnswers": 0,
+          "wrongAnswers": 0,
+          "status": "active",
+          "completionTimeSeconds": null
+        }
+      ],
+      "chatHistory": [
+        {
+          "id": "sys-1795581657589",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Room MATH-8571 dibuat oleh Bu Guru. Maksimal 45 siswa.",
+          "type": "system",
+          "timestamp": 1795581657589
+        }
+      ]
+    },
+    "MATH-2257": {
+      "code": "MATH-2257",
+      "teacherId": "teacher-tt3smtGpXyTF6bSdAAAE",
+      "teacherName": "Bu Guru",
+      "locked": false,
+      "status": "playing",
+      "settings": {
+        "mode": "coop",
+        "difficulty": "easy",
+        "categories": [
+          "addition",
+          "subtraction",
+          "multiplication",
+          "division",
+          "basic_ops"
+        ],
+        "questionSource": "auto",
+        "quizChoiceCount": 4,
+        "customQuestions": [],
+        "keyCount": 5,
+        "mapLevel": 1,
+        "biome": "stone_dungeon",
+        "maxPlayers": 45,
+        "lives": 3,
+        "durationSeconds": 300,
+        "questionTimerSeconds": 25,
+        "teamCount": 4,
+        "teamAssignmentMode": "random",
+        "eliminatedBehavior": "spectator"
+      },
+      "mazeSeed": 31398738,
+      "remainingSeconds": 300,
+      "startedAt": 1795581668905,
+      "createdAt": 1795581668887,
+      "sharedKeysCollected": 0,
+      "teamKeysCollected": {
+        "red": 0,
+        "blue": 0,
+        "green": 0,
+        "yellow": 0,
+        "purple": 0
+      },
+      "doorOpen": false,
+      "teamDoorOpen": {
+        "red": false,
+        "blue": false,
+        "green": false,
+        "yellow": false,
+        "purple": false
+      },
+      "playerDoorOpen": [],
+      "collectedKeys": [
+        {
+          "id": "key-1",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-2",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-3",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-4",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        },
+        {
+          "id": "key-5",
+          "collectedBy": null,
+          "collectedByPlayers": [],
+          "collectedByTeams": []
+        }
+      ],
+      "players": [
+        {
+          "id": "teacher-tt3smtGpXyTF6bSdAAAE",
+          "name": "Bu Guru",
+          "role": "teacher",
+          "characterId": "scholar",
+          "outfitColor": "#0891B2",
+          "teamId": null,
+          "ready": true,
+          "x": 102,
+          "y": 102,
+          "direction": "right",
+          "score": 0,
+          "lives": 3,
+          "keysCollected": 0,
+          "correctAnswers": 0,
+          "wrongAnswers": 0,
+          "status": "active",
+          "completionTimeSeconds": null
+        },
+        {
+          "id": "s-live-4",
+          "name": "Bima",
+          "role": "student",
+          "characterId": "knight",
+          "outfitColor": "#2563EB",
+          "teamId": null,
+          "ready": true,
+          "x": 112,
+          "y": 102,
+          "direction": "right",
+          "score": 0,
+          "lives": 2,
+          "keysCollected": 0,
+          "correctAnswers": 0,
+          "wrongAnswers": 1,
+          "status": "active",
+          "completionTimeSeconds": null
+        }
+      ],
+      "chatHistory": [
+        {
+          "id": "sys-1795581668887",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Room MATH-2257 dibuat oleh Bu Guru. Maksimal 45 siswa.",
+          "type": "system",
+          "timestamp": 1795581668887
+        },
+        {
+          "id": "sys-1795581668897-201",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Bima bergabung ke dalam room.",
+          "type": "system",
+          "timestamp": 1795581668897
+        },
+        {
+          "id": "sys-1795581668905-378",
+          "senderId": "system",
+          "senderName": "SISTEM",
+          "teamId": null,
+          "text": "Permainan dimulai! Jelajahi labirin dan temukan kunci matematika!",
+          "type": "system",
+          "timestamp": 1795581668905
         }
       ]
     }

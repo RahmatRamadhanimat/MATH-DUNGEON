@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import {
+  AnswerOptionKey,
   CHARACTER_PRESETS,
   DEFAULT_ROOM_SETTINGS,
   DifficultyLevel,
@@ -204,7 +205,7 @@ export default function App() {
     playerId: string;
     keyId: string;
     questionId: string;
-    selectedOption: 'A' | 'B' | 'TIMEOUT';
+    selectedOption: AnswerOptionKey | 'TIMEOUT';
   } | null>(null);
   const submitWatchdogTimerRef = useRef<number | null>(null);
   const submitFallbackTimerRef = useRef<number | null>(null);
@@ -350,7 +351,7 @@ export default function App() {
       playerId: string;
       keyId: string;
       questionId: string;
-      selectedOption: 'A' | 'B' | 'TIMEOUT';
+      selectedOption: AnswerOptionKey | 'TIMEOUT';
     }) => {
       const socket = socketRef.current;
       if (!socket) return;
@@ -949,7 +950,7 @@ export default function App() {
   );
 
   const handleSelectAnswer = useCallback(
-    (selectedOption: 'A' | 'B' | 'TIMEOUT') => {
+    (selectedOption: AnswerOptionKey | 'TIMEOUT') => {
       if (!socketRef.current || !roomState || !activeQuestionRef.current) return;
       const q = activeQuestionRef.current;
       const submission = {

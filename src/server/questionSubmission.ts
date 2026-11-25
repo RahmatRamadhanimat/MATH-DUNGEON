@@ -1,4 +1,10 @@
-import { GAME_RULES, TEAM_DEFINITIONS, TeamId, TileType } from '../shared/constants';
+import {
+  AnswerOptionKey,
+  GAME_RULES,
+  TEAM_DEFINITIONS,
+  TeamId,
+  TileType,
+} from '../shared/constants';
 import {
   GrantedPowerUpPayload,
   MYSTERY_POWER_UPS,
@@ -18,7 +24,7 @@ export interface AnswerResultPayload {
   questionId: string;
   correct: boolean;
   keyId: string;
-  correctOption: 'A' | 'B';
+  correctOption: AnswerOptionKey;
   explanation: string;
   pointsEarned: number;
   livesRemaining: number;
@@ -64,7 +70,7 @@ export function resolveSubmittedAnswer(params: {
   payload: {
     keyId?: string;
     questionId?: string;
-    selectedOption: 'A' | 'B' | 'TIMEOUT';
+    selectedOption: AnswerOptionKey | 'TIMEOUT';
   };
   database: Pick<GameDatabase, 'recordQuestionAttempt'>;
 }): SubmitAnswerResolution {

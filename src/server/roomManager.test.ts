@@ -764,3 +764,73 @@ test('resolveSubmittedAnswer increments currentStreak, applies x1.5 and x2.0 mul
   }
 });
 
+test('RoomSettings persists quizChoiceCount (2 vs 4) and resolveSubmittedAnswer grades C/D options accurately', () => {
+  const tmp = createTempDbPath();
+  try {
+    const db = new GameDatabase(tmp.file);
+    const manager = new RoomManager(db);
+    const room = manager.createRoom({
+      teacherId: 'teacher-4opt',
+      teacherName: 'Bu Rina',
+      socketId: 'sock-t-4opt',
+      preferredCode: 'MATH-4040',
+      settings: { quizChoiceCount: 4 },
+    });
+
+    assert.equal(room.settings.quizChoiceCount, 4);
+    assert.equal(sanitizeRoomSettings(room.settings, { quizChoiceCount: 99 as never }).quizChoiceCount, 2);
+
+    // Persists across restart
+    manager.rooms.clear();
+    const restored = manager.resolveRoom('MATH-4040');
+    assert.ok(restored);
+    assert.equal(restored.settings.quizChoiceCount, 4);
+
+    // Grade a 4-choice question where correct answer is A/B/C/D
+    manager.joinRoom({
+      roomCode: 'MATH-4040',
+      playerId: 'student-4opt',
+      socketId: 'sock-s-4opt',
+      name: 'Nadia',
+      role: 'student',
+      characterId: 'mage',
+      outfitColor: '#7C3AED',
+    });
+    restored.status = 'playing';
+    const player = restored.players.get('student-4opt')!;
+    const key1 = restored.maze.keys[0];
+    const q4 = generateMathQuestion({
+      difficulty: 'medium',
+      choiceCount: 4,
+    });
+    assert.equal(q4.choiceCount, 4);
+    assert.ok(q4.options.C && q4.options.D);
+
+    player.activeQuestion = {
+      keyId: key1.id,
+      question: q4,
+      issuedAt: Date.now() - 1200,
+    };
+
+    const res = resolveSubmittedAnswer({
+      room: restored,
+      player,
+      payload: {
+        keyId: key1.id,
+        questionId: q4.id,
+        selectedOption: q4.correctOption,
+      },
+      database: db,
+    });
+
+    assert.equal(res.ack.ok, true);
+    assert.equal(res.result?.correct, true);
+    assert.equal(res.result?.correctOption, q4.correctOption);
+    assert.equal(player.keysCollected, 1);
+  } finally {
+    fs.rmSync(tmp.dir, { recursive: true, force: true });
+  }
+});
+
+
+

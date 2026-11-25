@@ -119,6 +119,7 @@ export function sanitizeRoomSettings(
     rawSource === 'custom_only' || rawSource === 'mixed' || rawSource === 'auto'
       ? rawSource
       : base.questionSource ?? 'auto';
+  const quizChoiceCount = Number(merged.quizChoiceCount) === 4 ? 4 : 2;
   const customQuestions = sanitizeCustomQuestions(
     partial?.customQuestions !== undefined ? partial.customQuestions : merged.customQuestions
   );
@@ -126,6 +127,7 @@ export function sanitizeRoomSettings(
   return {
     ...merged,
     questionSource,
+    quizChoiceCount,
     customQuestions,
     maxPlayers: Math.max(
       GAME_RULES.MIN_PLAYERS,
